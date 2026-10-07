@@ -104,8 +104,6 @@ _LIGHTING_MOODS = [
     "gentle dappled sunlight through sheer curtains",
     "crisp clean mid-morning bright light",
     "warm ambient with soft window fill",
-    "bright airy spring daylight, high key",
-    "soft side window light with gentle fill",
     "cheerful sunny afternoon interior light",
     "warm cozy lamp light complementing daylight",
 ]
@@ -236,19 +234,21 @@ async def _cloudflare_once(prompt: str, ratio: str) -> Optional[bytes]:
     headers = {
         "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
         "Content-Type":  "application/json",
-        "User-Agent":    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent":    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Connection":    "close"  # ADDED: Forces connection to close instead of dropping mid-stream
     }
 
     payload = {
         "prompt":          enriched,
         "negative_prompt": _NEGATIVE_PROMPT,
-        "num_steps":       8,                                # max for Flux Schnell quality
-        "seed":            random.randint(1, 2_147_483_647), # fresh every call
+        "num_steps":       8,                                
+        "seed":            random.randint(1, 2_147_483_647), 
         "width":           w,
         "height":          h,
     }
 
-    async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
+    # ADDED: limits=httpx.Limits(max_keepalive_connections=0) to prevent EndOfStream errors
+    async with httpx.AsyncClient(timeout=_CALL_TIMEOUT, limits=httpx.Limits(max_keepalive_connections=0)) as client:
         resp = await client.post(url, headers=headers, json=payload)
         resp.raise_for_status()
 
@@ -307,8 +307,8 @@ async def _huggingface_once(prompt: str, ratio: str) -> Optional[bytes]:
         "parameters": {
             "width":               w,
             "height":              h,
-            "num_inference_steps": 4,    # FLUX schnell optimal: 1-4 steps
-            "guidance_scale":      0.0,  # FLUX schnell needs 0.0
+            "num_inference_steps": 4,    
+            "guidance_scale":      0.0,  
             "seed":                random.randint(1, 999_999),
         }
     }
@@ -316,7 +316,6 @@ async def _huggingface_once(prompt: str, ratio: str) -> Optional[bytes]:
     async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
         resp = await client.post(_HF_FLUX_URL, headers=headers, json=payload)
 
-        # Model may be loading — HF returns 503 with estimated_time
         if resp.status_code == 503:
             try:
                 wait_time = resp.json().get("estimated_time", 30)
@@ -324,7 +323,6 @@ async def _huggingface_once(prompt: str, ratio: str) -> Optional[bytes]:
                 wait_time = 30
             logger.info(f"⏳ [HuggingFace] Model loading, waiting {wait_time:.0f}s...")
             await asyncio.sleep(min(float(wait_time), 60))
-            # One more try after model loads
             resp = await client.post(_HF_FLUX_URL, headers=headers, json=payload)
 
         resp.raise_for_status()
@@ -368,18 +366,14 @@ async def _t2i_huggingface(prompt: str, ratio: str) -> Optional[bytes]:
 
 async def _pollinations_once(prompt: str, ratio: str) -> Optional[bytes]:
     w, h = _get_dims(ratio)
-
-    # Pollinations quality tip: keep prompt under 300 chars — long prompts hurt quality here
-    # Strip quality tail (Pollinations ignores "4K ultra HD" etc), keep core visual only
     core_prompt = prompt.replace(
         ", 4K ultra HD, photorealistic, highly detailed, award-winning photography", ""
     ).strip().rstrip(",").strip()
-    core_prompt = core_prompt[:300]  # Hard cap — Pollinations degrades beyond this
+    core_prompt = core_prompt[:300]  
 
     seed    = random.randint(1, 999_999)
     encoded = urllib.parse.quote(core_prompt)
 
-    # flux-pro = noticeably better quality than flux on Pollinations (still free)
     url = (
         f"{_POLLINATIONS_BASE}/{encoded}"
         f"?width={w}&height={h}&nologo=true&enhance=true"
@@ -419,24 +413,10 @@ async def _t2i_pollinations(prompt: str, ratio: str) -> Optional[bytes]:
 async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optional[str]:
     """
     Generate a Pinterest image using the T2I pipeline.
-
-    Flow:
-      1. Inject 4 focused variety modifiers (angle, lighting, comp, season)
-      2. Random seed every call for visual freshness
-      3. Try Cloudflare (primary) → HuggingFace (secondary) → Pollinations (last resort)
-      4. Upload result to ImgBB for permanent hosting
-
-    Args:
-        visual_prompt: The detailed visual prompt from prompts master
-        ratio: "9:16" (Pinterest portrait) or "1:1" (square)
-
-    Returns:
-        ImgBB hosted URL or None if all models fail
     """
     w, h = _get_dims(ratio)
     logger.info(f"🎨 [Image Pipeline] PIN | ratio={ratio} ({w}x{h})")
 
-    # Inject variety — 4 focused modifiers, lean prompt
     enriched_prompt, mods = _inject_variety(visual_prompt)
     logger.info(
         f"🎲 [Variety Engine v4] "
@@ -447,15 +427,12 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
     )
     logger.info(f"📝 [Prompt] {len(enriched_prompt)} chars: {enriched_prompt[:120]}...")
 
-    # PRIMARY: Cloudflare
     image_bytes = await _t2i_cloudflare(enriched_prompt, ratio)
 
-    # SECONDARY: HuggingFace
     if not image_bytes:
         logger.info("🔄 [Image Pipeline] Cloudflare exhausted — trying HuggingFace...")
         image_bytes = await _t2i_huggingface(enriched_prompt, ratio)
 
-    # LAST RESORT: Pollinations
     if not image_bytes:
         logger.info("🔄 [Image Pipeline] HuggingFace exhausted — trying Pollinations...")
         image_bytes = await _t2i_pollinations(enriched_prompt, ratio)
