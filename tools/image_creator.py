@@ -1,4 +1,4 @@
-'''tools/image_creator.py — Triple-Layer T2I Image Pipeline  [VARIETY ENGINE v4 — CLEAN & OPTIMIZED]
+"""tools/image_creator.py — Triple-Layer T2I Image Pipeline  [VARIETY ENGINE v4 — CLEAN & OPTIMIZED]
 
 MODELS (in order):
   1. Cloudflare     — @cf/black-forest-labs/flux-1-schnell (Primary)
