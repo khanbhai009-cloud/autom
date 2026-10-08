@@ -3,19 +3,15 @@ sheets/style_tracker.py — Style rotation tracker (Style_Tracker sheet tab).
 
 Tab columns: account_1 | account_2
 Row 2 = current rotation indices (int).
-Local JSON fallback: data/style_tracker_local.json
+Local JSON fallback REMOVED for Render/cloud deployment reliability.
 
 Reads are TTL-cached (5 min) to avoid hammering Sheets quota.
 """
-import json
 import logging
-import os
 import time
 from sheets.base import _open_worksheet, _throttled_write, _throttled_read
 
 logger = logging.getLogger(__name__)
-
-_LOCAL_FILE = "data/style_tracker_local.json"
 
 # ── Read cache (5 minute TTL) ──────────────────────────────────────────────
 _read_cache: dict | None = None
@@ -31,8 +27,8 @@ def _invalidate_cache() -> None:
 
 def load_style_tracker() -> dict:
     """
-    Load style rotation indices.
-    Priority: in-memory TTL cache → Style_Tracker sheet tab → local JSON → empty dict.
+    Load style rotation indices ONLY from Google Sheets (Style_Tracker tab).
+    Priority: in-memory TTL cache → Style_Tracker sheet tab → empty dict.
     """
     global _read_cache, _read_cache_ts
     now = time.monotonic()
@@ -41,7 +37,7 @@ def load_style_tracker() -> dict:
     if _read_cache is not None and (now - _read_cache_ts) < _READ_TTL:
         return dict(_read_cache)
 
-    # 1. Try Google Sheets
+    # 1. Force Google Sheets Read
     try:
         def _read():
             sheet = _open_worksheet("Style_Tracker")
@@ -55,46 +51,27 @@ def load_style_tracker() -> dict:
             _read_cache_ts = now
             return dict(data)
     except Exception as e:
-        logger.warning(f"Style_Tracker Sheet failed — {type(e).__name__}: {e} | trying local file")
+        logger.error(f"❌ Style_Tracker Sheet failed — {type(e).__name__}: {e} | Starting from 0")
 
-    # 2. Local JSON fallback
-    try:
-        if os.path.exists(_LOCAL_FILE):
-            with open(_LOCAL_FILE, "r") as f:
-                data = json.load(f)
-                logger.info(f"Style_Tracker loaded from local file: {data}")
-                _read_cache    = data
-                _read_cache_ts = now
-                return dict(data)
-    except Exception as e:
-        logger.warning(f"Style_Tracker local file failed — {type(e).__name__}: {e} | starting from 0")
-
+    # If it fails, return empty to let the engine assign 0 dynamically
     return {}
 
 
 def save_style_tracker(tracker: dict) -> None:
     """
-    Save style rotation indices.
-    Always writes local JSON first, then tries Sheets (best effort).
+    Save style rotation indices ONLY to Google Sheets.
     Invalidates read cache so next load_style_tracker() gets fresh data.
     """
     _invalidate_cache()
 
-    # Always save locally first
-    try:
-        os.makedirs(os.path.dirname(_LOCAL_FILE), exist_ok=True)
-        with open(_LOCAL_FILE, "w") as f:
-            json.dump(tracker, f, indent=2)
-    except Exception as e:
-        logger.error(f"Style_Tracker local save failed — {type(e).__name__}: {e}")
-
-    # Best-effort Sheets save (throttled)
     try:
         def _write():
             sheet   = _open_worksheet("Style_Tracker")
             records = sheet.get_all_records()
             a1_val  = tracker.get("account_1", 0)
             a2_val  = tracker.get("account_2", 0)
+            
+            # If sheet is totally empty, create headers and row 2
             if not records:
                 sheet.append_row(["account_1", "account_2"])
                 sheet.append_row([a1_val, a2_val])
@@ -104,4 +81,5 @@ def save_style_tracker(tracker: dict) -> None:
         _throttled_write(_write)
         logger.info(f"✅ Style_Tracker saved to Sheets: {tracker}")
     except Exception as e:
-        logger.warning(f"Style_Tracker Sheet save failed (local saved) — {type(e).__name__}: {e}")
+        logger.error(f"❌ Style_Tracker Sheet save failed — {type(e).__name__}: {e}")
+
