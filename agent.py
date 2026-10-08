@@ -367,6 +367,7 @@ def _build_llm():
         api_key=GROQ_API_KEY or "placeholder",
         model=GROQ_MODEL,
         temperature=0.1,
+        max_tokens=800,
     ).bind_tools(ALL_TOOLS)
     fallback = ChatOpenAI(
         api_key=CEREBRAS_API_KEY or "placeholder",
