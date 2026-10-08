@@ -1,4 +1,5 @@
-"""tools/image_creator.py — Triple-Layer T2I Image Pipeline  [VARIETY ENGINE v4 — CLEAN & OPTIMIZED]
+"""
+tools/image_creator.py — Triple-Layer T2I Image Pipeline  [VARIETY ENGINE v4 — CLEAN & OPTIMIZED]
 
 MODELS (in order):
   1. Cloudflare     — @cf/black-forest-labs/flux-1-schnell (Primary)
@@ -239,24 +240,65 @@ async def _cloudflare_once(prompt: str, ratio: str) -> Optional[bytes]:
         "User-Agent":    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    # FIXED PAYLOAD: Removed seed, width, height, num_steps, and negative_prompt
-    payload = {
-        "prompt": enriched
-    }
+    model = str(CLOUDFLARE_IMAGE_MODEL)
 
     async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
-        resp = await client.post(url, headers=headers, json=payload)
+        if "flux-2" in model:
+            # FLUX.2 (klein/dev): multipart form, supports real width/height (256-1920)
+            form = {
+                "prompt": (None, enriched),
+                "width":  (None, str(w)),
+                "height": (None, str(h)),
+            }
+            resp = await client.post(
+                url,
+                headers={k: v for k, v in headers.items() if k != "Content-Type"},
+                files=form,
+            )
+        else:
+            # flux-1-schnell: ONLY prompt + steps (max 8). No width/height -> always 1024x1024.
+            resp = await client.post(url, headers=headers, json={"prompt": enriched, "steps": 8})
         resp.raise_for_status()
 
         if "application/json" in resp.headers.get("content-type", "").lower():
             data    = resp.json()
             b64_str = data.get("result", {}).get("image", "")
             if b64_str:
-                return base64.b64decode(b64_str)
-            logger.error(f"❌ [Cloudflare] No image in response: {str(data)[:200]}")
-            return None
+                img = base64.b64decode(b64_str)
+            else:
+                logger.error(f"❌ [Cloudflare] No image in response: {str(data)[:200]}")
+                return None
         else:
-            return resp.content
+            img = resp.content
+
+    # schnell can't do 9:16 -> crop square to ratio + upscale (only if needed)
+    if "flux-2" not in model:
+        img = _fit_to_ratio(img, ratio)
+    return img
+
+
+def _fit_to_ratio(img_bytes: bytes, ratio: str) -> bytes:
+    """Center-crop to target ratio, resize with LANCZOS. Needs Pillow; falls back to raw bytes."""
+    try:
+        import io
+        from PIL import Image
+        w, h = _get_dims(ratio)
+        im = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        iw, ih = im.size
+        target = w / h
+        if iw / ih > target:            # too wide -> crop sides
+            nw = int(ih * target)
+            im = im.crop(((iw - nw) // 2, 0, (iw - nw) // 2 + nw, ih))
+        elif iw / ih < target:          # too tall -> crop top/bottom
+            nh = int(iw / target)
+            im = im.crop((0, (ih - nh) // 2, iw, (ih - nh) // 2 + nh))
+        im = im.resize((w, h), Image.LANCZOS)
+        out = io.BytesIO()
+        im.save(out, format="JPEG", quality=95, subsampling=0)
+        return out.getvalue()
+    except Exception as e:
+        logger.warning(f"⚠️ [Ratio fit] skipped: {e!r}")
+        return img_bytes
 
 
 async def _t2i_cloudflare(prompt: str, ratio: str) -> Optional[bytes]:
