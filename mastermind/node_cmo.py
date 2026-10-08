@@ -51,20 +51,27 @@ from tools.firebase_boards import format_boards_for_prompt, format_trends_for_pr
 
 logger = logging.getLogger(__name__)
 
+# ── Load Extra Environment Variables ─────────────────────────────────────────────
+GEMINI_API_KEY_2 = os.environ.get("GEMINI_API_KEY_2")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+
 # ── Gemini client ──────────────────────────────────────────────────────────────
 try:
     from google import genai as _genai
     from google.genai import types as _gtypes
-    _gemini_client = _genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+    _gemini_client_1 = _genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+    _gemini_client_2 = _genai.Client(api_key=GEMINI_API_KEY_2) if GEMINI_API_KEY_2 else None
 except Exception:
-    _gemini_client = None
+    _gemini_client_1 = None
+    _gemini_client_2 = None
 
-# ── Cerebras client ────────────────────────────────────────────────────────────
+# ── Groq client ────────────────────────────────────────────────────────────
 try:
-    from cerebras.cloud.sdk import Cerebras as _Cerebras
-    _cerebras_client = _Cerebras(api_key=CEREBRAS_API_KEY) if CEREBRAS_API_KEY else None
+    from groq import Groq
+    _groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+    GROQ_CMO_MODEL = "qwen/qwen3.8-27b"
 except Exception:
-    _cerebras_client = None
+    _groq_client = None
 
 # ── Image ratio config ─────────────────────────────────────────────────────────
 _RATIOS = {
@@ -1107,42 +1114,67 @@ def _build_from_style_data(forced_style: str, ratio: str, niche: str, account_ke
 # LLM CALLS
 # ══════════════════════════════════════════════════════════════════════════════
 def _call_gemini_sync(prompt: str) -> str:
-    if not _gemini_client:
-        raise ValueError("GEMINI_API_KEY not configured.")
-    response = _gemini_client.models.generate_content(
-        model=GEMINI_CMO_MODEL,
-        contents=prompt,
-        config=_gtypes.GenerateContentConfig(
-            system_instruction=_GEMINI_SYSTEM_INSTRUCTION,
-            temperature=0.80,
-            max_output_tokens=6000,
-            response_mime_type="application/json",
-        ),
-    )
-    return response.text.strip()
-
-
-def _call_cerebras_sync(prompt: str) -> str:
-    if not _cerebras_client:
-        raise ValueError("CEREBRAS_API_KEY not configured.")
+    # First try client 1
+    if _gemini_client_1:
+        try:
+            response = _gemini_client_1.models.generate_content(
+                model=GEMINI_CMO_MODEL,
+                contents=prompt,
+                config=_gtypes.GenerateContentConfig(
+                    system_instruction=_GEMINI_SYSTEM_INSTRUCTION,
+                    temperature=0.80,
+                    max_output_tokens=6000,
+                    response_mime_type="application/json",
+                ),
+            )
+            return response.text.strip()
+        except Exception as e:
+            err_str = str(e).lower()
+            if "429" in err_str or "quota" in err_str or "exhausted" in err_str:
+                logger.warning("Gemini Client 1 rate limited. Trying Client 2...")
+                pass # Move to client 2
+            else:
+                raise # If it's a different error, raise it
+                
+    # If client 1 fails with 429 or is None, try client 2
+    if _gemini_client_2:
+        try:
+            response = _gemini_client_2.models.generate_content(
+                model=GEMINI_CMO_MODEL,
+                contents=prompt,
+                config=_gtypes.GenerateContentConfig(
+                    system_instruction=_GEMINI_SYSTEM_INSTRUCTION,
+                    temperature=0.80,
+                    max_output_tokens=6000,
+                    response_mime_type="application/json",
+                ),
+            )
+            return response.text.strip()
+        except Exception as e:
+             raise RuntimeError(f"Gemini Client 2 also failed: {e}") from e
+             
+    raise ValueError("Neither GEMINI_API_KEY nor GEMINI_API_KEY_2 are configured correctly.")
+def _call_groq_sync(prompt: str) -> str:
+    if not _groq_client:
+        raise ValueError("GROQ_API_KEY not configured.")
     try:
-        response = _cerebras_client.chat.completions.create(
-            model=CEREBRAS_CMO_MODEL,
+        response = _groq_client.chat.completions.create(
+            model=GROQ_CMO_MODEL,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user",   "content": prompt},
             ],
             temperature=0.80,
             max_tokens=6000,
+            response_format={"type": "json_object"} 
         )
         return response.choices[0].message.content
     except Exception as e:
         err_str = str(e)
         if "429" in err_str or "rate" in err_str.lower():
-            raise RuntimeError(f"Cerebras rate-limited (429) — aborting: {e}") from e
+            raise RuntimeError(f"Groq rate-limited (429) — aborting: {e}") from e
         raise
-
-
+        
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN ORCHESTRATION — Sequential rotation per account
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1256,9 +1288,10 @@ def _call_cmo_for_account(account_key: str, metrics: dict,
         )
 
     # ── FALLBACK: Cerebras ────────────────────────────────────────────────────
+        # ── FALLBACK: Groq ────────────────────────────────────────────────────────
     try:
-        logger.info(f"   [{account_key}] Cerebras fallback...")
-        raw    = _call_cerebras_sync(prompt)
+        logger.info(f"   [{account_key}] Groq fallback...")
+        raw    = _call_groq_sync(prompt)
         result = _extract_json(raw)
         _validate(result, account_key)
         result["pin_type"]     = "VIRAL_PIN"
@@ -1274,25 +1307,22 @@ def _call_cmo_for_account(account_key: str, metrics: dict,
             ]
             result["board_keywords"] = [k for k in result["board_keywords"] if k]
             logger.warning("[CMO] board_keywords missing from LLM output — derived fallback")
-        logger.info(f"   [{account_key}] Cerebras OK | style={forced_style} | niche={niche}")
+        logger.info(f"   [{account_key}] Groq OK | style={forced_style} | niche={niche}")
         return result
     except RuntimeError as rate_err:
-        # 429 — nothing we can do, raise so node uses HARDCODED_FALLBACK
         logger.error(
-            f"   [{account_key}] CEREBRAS 429 RATE LIMIT — "
+            f"   [{account_key}] GROQ 429 RATE LIMIT — "
             f"{type(rate_err).__name__}: {rate_err} | "
             f"→ Using HARDCODED_FALLBACK (rate limited)"
         )
         raise
-    except Exception as cerebras_err:
-        # Non-429 error — zero LLM, build directly from sheet_row content
+    except Exception as groq_err:
         logger.error(
-            f"   [{account_key}] CEREBRAS FAILED — "
-            f"{type(cerebras_err).__name__}: {cerebras_err} | "
+            f"   [{account_key}] GROQ FAILED — "
+            f"{type(groq_err).__name__}: {groq_err} | "
             f"→ Building directly from sheet_row for: {forced_style}"
         )
         return _build_from_style_data(forced_style, ratio, niche, account_key, sheet_row=sheet_row)
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # LANGGRAPH NODE
