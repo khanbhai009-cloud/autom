@@ -1,5 +1,6 @@
 """Trend-aware CMO strategy; None means the unchanged regular strategy should run."""
 import logging
+import os
 import random
 import re
 import requests
@@ -10,17 +11,37 @@ from sheets.trends import get_active_trends, get_trend_prompts, update_trend_boa
 logger = logging.getLogger(__name__)
 _TAIL = ", 4K ultra HD, photorealistic, highly detailed, award-winning photography"
 
-MAKE_BOARD_WEBHOOK_URL = "https://hook.eu1.make.com/cujz1avg4cx7ld2cve7qnt31bticeiqy"
+# Webhook URLs ab environment se aate hain (code me secret mat rakho).
+#   MAKE_BOARD_WEBHOOK_URL             -> default webhook
+#   MAKE_BOARD_WEBHOOK_URL_ACCOUNT_1   -> (optional) account_1 ka alag Pinterest account
+#   MAKE_BOARD_WEBHOOK_URL_ACCOUNT_2   -> (optional) account_2 ka alag Pinterest account
+MAKE_BOARD_WEBHOOK_URL = os.environ.get("MAKE_BOARD_WEBHOOK_URL", "")
+_WEBHOOK_TIMEOUT = 60  # Make scenario slow ho sakta hai; 20s kam tha
+
+
+def _webhook_for(account_key: str) -> str:
+    return (
+        os.environ.get(f"MAKE_BOARD_WEBHOOK_URL_{account_key.upper()}")
+        or MAKE_BOARD_WEBHOOK_URL
+    )
+
 
 def _camel(keyword: str) -> str:
     words = re.sub(r"[^A-Za-z0-9 ]", " ", keyword)
     return "".join(word.capitalize() for word in words.split())
 
-def _ensure_board_exists(trend_name: str, keywords: list) -> str:
+
+def _ensure_board_exists(trend_name: str, keywords: list, account_key: str = "") -> str:
+    """Pinterest board banata hai (Make.com se). Fail hone par "" return karta hai."""
     from mastermind import node_cmo as n
-    
-    # 1. AI se catchy Board Name aur Description likhwao
-    prompt = f"""You are a Pinterest SEO expert. 
+
+    webhook = _webhook_for(account_key)
+    if not webhook:
+        logger.error("❌ MAKE_BOARD_WEBHOOK_URL env variable set nahi hai — board nahi ban sakta.")
+        return ""
+
+    # 1. AI se catchy Board Name aur Description
+    prompt = f"""You are a Pinterest SEO expert.
     Create a viral Pinterest board name and description for the trend: "{trend_name}".
     Keywords to include: {', '.join(keywords)}
     STRICT RULES:
@@ -28,7 +49,7 @@ def _ensure_board_exists(trend_name: str, keywords: list) -> str:
     - board_description MUST be UNDER 300 characters.
     Output ONLY a JSON object:
     {{"board_name": "...", "board_description": "..."}}"""
-    
+
     try:
         raw = n._call_gemini_sync(prompt)
         data = n._extract_json(raw)
@@ -39,36 +60,51 @@ def _ensure_board_exists(trend_name: str, keywords: list) -> str:
         board_name = f"{trend_name.title()} Aesthetic"
         board_desc = f"Discover the best {trend_name} aesthetics, ideas, and inspiration."
 
-    # 🚨 FORCE CHARACTER LIMITS (Make.com Error 400 Prevention) 🚨
-    board_name = board_name[:45].strip()
-    board_desc = board_desc[:300].strip()
+    # Make.com Error 400 prevention
+    board_name = str(board_name)[:45].strip()
+    board_desc = str(board_desc)[:300].strip()
 
-    # 2. Make.com Webhook ko data bhejo
     payload = {
         "trend_id": trend_name,
+        "account": account_key,
         "board_name": board_name,
-        "board_description": board_desc
+        "board_description": board_desc,
     }
-    logger.info(f"🚀 Creating new Pinterest board for '{trend_name}' via Make.com... (Name length: {len(board_name)})")
-    
+    logger.info(
+        f"🚀 Creating new Pinterest board for '{trend_name}' via Make.com "
+        f"(account={account_key or 'default'}, name length={len(board_name)})"
+    )
+
     try:
-        res = requests.post(MAKE_BOARD_WEBHOOK_URL, json=payload, timeout=20)
+        res = requests.post(webhook, json=payload, timeout=_WEBHOOK_TIMEOUT)
         if res.status_code == 200:
-            res_data = res.json() 
-            new_board_id = str(res_data.get("board_id", "")).strip().replace('"', '')
+            try:
+                res_data = res.json()
+            except ValueError:
+                res_data = {}
+            new_board_id = str(res_data.get("board_id", "")).strip().replace('"', "")
             if new_board_id:
                 logger.info(f"✅ Board created successfully! ID: {new_board_id}")
-                # 3. Sheet me update kar do
-                update_trend_board_id(trend_name, new_board_id)
+                try:
+                    update_trend_board_id(trend_name, new_board_id)
+                except Exception as e:
+                    # Board ban chuka hai — ID is run me use hoga, par sheet save fail hua
+                    logger.error(
+                        f"❌ Board ban gaya (ID {new_board_id}) par Sheet me save fail: {e}. "
+                        f"Is ID ko Trends sheet me manually daal do warna duplicate boards bante rahenge."
+                    )
                 return new_board_id
+            logger.error(f"❌ Make returned 200 but no board_id. Response: {res.text[:200]}")
         elif res.status_code == 202:
-            logger.error("❌ Make.com returned 202 Accepted. Your Scenario might be OFF. Please turn it ON.")
+            logger.error("❌ Make.com returned 202 Accepted. Scenario OFF ho sakta hai, ya "
+                         "'Webhook response' module missing hai.")
         else:
-            logger.error(f"❌ Make.com Error: Status {res.status_code} - {res.text}")
+            logger.error(f"❌ Make.com Error: Status {res.status_code} - {res.text[:200]}")
     except Exception as e:
-        logger.error(f"❌ Failed to create board via Make.com: {e}")
-    
+        logger.error(f"❌ Failed to create board via Make.com: {type(e).__name__}: {e}")
+
     return ""
+
 
 def _pick_trend_and_row(account_key: str):
     active = get_active_trends()
@@ -135,7 +171,6 @@ def _apply_trend_rules(result: dict, trend: dict, keywords: list):
 def call_trend_cmo(account_key: str, boards: dict = None, trends: dict = None):
     # Lazy import prevents the CMO's regular path from forming an import cycle.
     from mastermind import node_cmo as n
-    from tools.firebase_boards import format_boards_for_prompt, format_trends_for_prompt
 
     trend, row = _pick_trend_and_row(account_key)
     if not trend:
@@ -143,15 +178,24 @@ def call_trend_cmo(account_key: str, boards: dict = None, trends: dict = None):
 
     keyword_pool = trend["keywords"] or [trend["trend"]]
     keywords = random.sample(keyword_pool, min(3, len(keyword_pool)))
-    
+
     # ---- SMART BOARD CREATOR LOGIC ----
     board_id = str(trend.get("board_id", "")).strip()
     if not board_id:
         logger.info(f"⚠️ No Board ID found for '{trend['trend']}'. Starting auto-creation...")
-        board_id = _ensure_board_exists(trend['trend'], keywords)
-        trend['board_id'] = board_id  # Update local dict so loop can use it
+        board_id = _ensure_board_exists(trend["trend"], keywords, account_key)
+        trend["board_id"] = board_id
+
+    # FIX: board nahi mila/bana to trend pin mat banao — regular flow chale
+    # (warna pin kisi random board me chala jata tha).
+    if not board_id:
+        logger.error(
+            f"❌ [{account_key}] Trend '{trend['trend']}' ke liye board ID nahi mila — "
+            f"regular strategy par fallback."
+        )
+        return None
     # -----------------------------------
-    
+
     style_key = str(row.get("style_key", "")).strip() or (
         f"{_camel(trend['trend'])}Style"
     )
@@ -165,14 +209,16 @@ def call_trend_cmo(account_key: str, boards: dict = None, trends: dict = None):
     niche = random.choice(niche_affinity) if niche_affinity else "home"
     row["tags"] = ",".join(_camel(keyword) for keyword in keywords)
 
+    # FIX: boards_formatted / trends_formatted khali — trend mode me LLM board
+    # select na kare (board already trend ka fixed hai).
     prompt = n._build_forced_style_prompt(
         n._ACCOUNT_PROFILES[account_key],
         style_key,
         ratio,
         t2i_base,
         sheet_row=row,
-        boards_formatted=format_boards_for_prompt(boards or {}),
-        trends_formatted=format_trends_for_prompt(trends or {}),
+        boards_formatted="",
+        trends_formatted="",
     ) + f"""
 
 TREND MODE (IMPORTANT — overrides the account's default mood)
@@ -226,6 +272,15 @@ Trend keywords for this pin: {', '.join(keywords)}
     result["ratio"] = result.get("ratio", ratio)
     result["niche"] = niche
     result["trend"] = trend["trend"]
-    result["selected_board_id"] = trend.get("board_id", "")
+
+    # FIX: LLM ka board data hata do, sirf trend ka board rakho aur lock karo
+    for stale in ("selected_board_name", "selected_board_niche",
+                  "board_selection_reason", "primary_keyword", "active_keywords"):
+        result.pop(stale, None)
+    result["selected_board_id"] = board_id
+    result["selected_board_name"] = trend["trend"]
+    result["selected_board_niche"] = "trend"
+    result["board_locked"] = True   # node_board_selector isko dekh kar Groq skip karega
+
     _apply_trend_rules(result, trend, keywords)
     return result
