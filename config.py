@@ -12,8 +12,8 @@ CEREBRAS_VISION_MODEL = "qwen-3-235b-a22b-instruct-2507"
 VISION_RETRY_DELAY    = 10   # seconds between fallback attempts
 CEREBRAS_MODEL        = "llama3.1-8b"
 CEREBRAS_CMO_MODEL    = "llama3.1-8b"
-GEMINI_CMO_MODEL      = "gemini-3.5-flash-lite"
-GEMINI_CHAT_MODEL     = "gemini-3.5-flash-lite"
+GEMINI_CMO_MODEL      = "gemini-3.8-flash"
+GEMINI_CHAT_MODEL     = "gemini-3.8-flash"
 OPENROUTER_IMAGE_MODEL = "black-forest-labs/flux.2-pro"
 POLLINATIONS_MODEL    = "flux"
 GOOGLE_CREDS_JSON     = os.getenv("GOOGLE_CREDS_JSON")
@@ -39,7 +39,7 @@ GEMINI_API_KEY_2        = os.getenv("GEMINI_API_KEY_2")
 # when it becomes GA.  Tenacity fallback protects the pipeline if unavailable.
 GEMINI_IMAGE_MODEL      = os.getenv(
     "GEMINI_IMAGE_MODEL",
-    "gemini-2.5-flash-image",
+    "gemini-3.8-flash",
 )
 
 # ── Blog — Firebase (V4 Addition) ────────────────────────────────────────────
