@@ -2,18 +2,62 @@
 import logging
 import random
 import re
+import requests
 
 from sheets import load_prompt_tracker, save_prompt_tracker
-from sheets.trends import get_active_trends, get_trend_prompts
+from sheets.trends import get_active_trends, get_trend_prompts, update_trend_board_id
 
 logger = logging.getLogger(__name__)
 _TAIL = ", 4K ultra HD, photorealistic, highly detailed, award-winning photography"
 
+MAKE_BOARD_WEBHOOK_URL = "https://hook.eu1.make.com/cujz1avg4cx7ld2cve7qnt31bticeiqy"
 
 def _camel(keyword: str) -> str:
     words = re.sub(r"[^A-Za-z0-9 ]", " ", keyword)
     return "".join(word.capitalize() for word in words.split())
 
+def _ensure_board_exists(trend_name: str, keywords: list) -> str:
+    from mastermind import node_cmo as n
+    
+    # 1. AI se catchy Board Name aur Description likhwao
+    prompt = f"""You are a Pinterest SEO expert. 
+    Create a viral Pinterest board name and description for the trend: "{trend_name}".
+    Keywords to include: {', '.join(keywords)}
+    Output ONLY a JSON object:
+    {{"board_name": "...", "board_description": "..."}}"""
+    
+    try:
+        raw = n._call_gemini_sync(prompt)
+        data = n._extract_json(raw)
+        board_name = data.get("board_name", f"{trend_name.title()} Aesthetic")
+        board_desc = data.get("board_description", f"Best {trend_name} ideas and inspiration.")
+    except Exception as e:
+        logger.warning(f"AI board generation failed, using defaults. Error: {e}")
+        board_name = f"{trend_name.title()} Aesthetic"
+        board_desc = f"Discover the best {trend_name} aesthetics, ideas, and inspiration."
+
+    # 2. Make.com Webhook ko data bhejo
+    payload = {
+        "trend_id": trend_name,
+        "board_name": board_name,
+        "board_description": board_desc
+    }
+    logger.info(f"🚀 Creating new Pinterest board for '{trend_name}' via Make.com...")
+    
+    try:
+        res = requests.post(MAKE_BOARD_WEBHOOK_URL, json=payload, timeout=20)
+        if res.status_code == 200:
+            res_data = res.json() 
+            new_board_id = str(res_data.get("board_id", "")).strip().replace('"', '')
+            if new_board_id:
+                logger.info(f"✅ Board created successfully! ID: {new_board_id}")
+                # 3. Sheet me update kar do
+                update_trend_board_id(trend_name, new_board_id)
+                return new_board_id
+    except Exception as e:
+        logger.error(f"❌ Failed to create board via Make.com: {e}")
+    
+    return ""
 
 def _pick_trend_and_row(account_key: str):
     active = get_active_trends()
@@ -88,6 +132,15 @@ def call_trend_cmo(account_key: str, boards: dict = None, trends: dict = None):
 
     keyword_pool = trend["keywords"] or [trend["trend"]]
     keywords = random.sample(keyword_pool, min(3, len(keyword_pool)))
+    
+    # ---- SMART BOARD CREATOR LOGIC ----
+    board_id = str(trend.get("board_id", "")).strip()
+    if not board_id:
+        logger.info(f"⚠️ No Board ID found for '{trend['trend']}'. Starting auto-creation...")
+        board_id = _ensure_board_exists(trend['trend'], keywords)
+        trend['board_id'] = board_id  # Update local dict so loop can use it
+    # -----------------------------------
+    
     style_key = str(row.get("style_key", "")).strip() or (
         f"{_camel(trend['trend'])}Style"
     )
@@ -162,5 +215,6 @@ Trend keywords for this pin: {', '.join(keywords)}
     result["ratio"] = result.get("ratio", ratio)
     result["niche"] = niche
     result["trend"] = trend["trend"]
+    result["selected_board_id"] = trend.get("board_id", "")
     _apply_trend_rules(result, trend, keywords)
     return result

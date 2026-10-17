@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 SETTINGS_TAB = "Trend_Settings"
 PROMPTS_TAB = "Trend_Prompts"
-SETTINGS_HEADERS = ["trend", "active", "drive_folder_id", "keywords"]
+# ---- CHANGE 1: Added board_id to headers ----
+SETTINGS_HEADERS = ["trend", "active", "drive_folder_id", "keywords", "board_id"]
 PROMPTS_HEADERS = [
     "trend",
     "style_key",
@@ -102,6 +103,7 @@ def get_trends() -> list:
         name = str(row.get("trend", "")).strip()
         if not name:
             continue
+        # ---- CHANGE 2: Fetch board_id ----
         trends.append(
             {
                 "trend": name,
@@ -112,6 +114,7 @@ def get_trends() -> list:
                     for keyword in str(row.get("keywords", "")).split(",")
                     if keyword.strip()
                 ],
+                "board_id": str(row.get("board_id", "")).strip(),
             }
         )
     _cache["settings"] = (time.monotonic(), trends)
@@ -138,7 +141,8 @@ def add_trend(trend: str, keywords: str = "", drive_folder_id: str = "") -> bool
         worksheet = _ws(SETTINGS_TAB, SETTINGS_HEADERS)
         if _find_row(worksheet, name):
             return False
-        worksheet.append_row([name, "FALSE", drive_folder_id.strip(), keywords.strip()])
+        # ---- CHANGE 3: Add blank space for board_id column at the end ----
+        worksheet.append_row([name, "FALSE", drive_folder_id.strip(), keywords.strip(), ""])
         _clear()
         return True
 
@@ -163,6 +167,23 @@ def set_trend_keywords(trend: str, keywords: str) -> bool:
         worksheet.update_cell(row, 4, keywords.strip())
         _clear()
         return True
+
+
+# ---- CHANGE 4: Function to save the Make.com board ID to the sheet ----
+def update_trend_board_id(trend: str, board_id: str) -> bool:
+    """Naye trend ke liye Make.com se aayi board_id ko sheet me save karta hai."""
+    with _lock:
+        worksheet = _ws(SETTINGS_TAB, SETTINGS_HEADERS)
+        row = _find_row(worksheet, trend)
+        if not row:
+            logger.error(f"❌ Trend '{trend}' not found in sheet to update board_id.")
+            return False
+        # Column 5 is 'board_id' based on SETTINGS_HEADERS
+        worksheet.update_cell(row, 5, board_id.strip())
+        _clear()
+        logger.info(f"✅ Board ID '{board_id}' saved to sheet for trend '{trend}'")
+        return True
+# -----------------------------------------------------------------------
 
 
 def _all_prompts() -> list:
