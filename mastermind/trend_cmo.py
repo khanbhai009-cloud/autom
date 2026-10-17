@@ -168,6 +168,41 @@ def _apply_trend_rules(result: dict, trend: dict, keywords: list):
     )[:4]
 
 
+def _pick_relevant_keywords(keyword_pool: list, row: dict, limit: int = 3) -> list:
+    """
+    Sirf wahi trend keywords lo jo is prompt row (image) se match karte hain.
+    Isse title/description hamesha usi cheez ke baare me hoga jo image me hai.
+    Koi match nahi mila -> [] (copy sirf image ke hisaab se likhi jayegi).
+    """
+    row_text = " ".join(
+        str(row.get(k, "")) for k in
+        ("style_key", "label", "description", "t2i_base", "niche_affinity")
+    ).casefold()
+    row_text = re.sub(r"[^a-z0-9 ]", " ", row_text.replace("_", " "))
+    row_words = set(row_text.split())
+
+    def _norm(word: str) -> str:
+        return word[:-1] if len(word) > 3 and word.endswith("s") else word
+
+    row_norm = {_norm(w) for w in row_words}
+
+    scored = []
+    for keyword in keyword_pool:
+        tokens = [
+            _norm(t) for t in re.sub(r"[^a-z0-9 ]", " ", str(keyword).casefold()).split()
+            if len(t) > 2
+        ]
+        if not tokens:
+            continue
+        hits = sum(1 for t in tokens if t in row_norm)
+        # keyword tabhi lo jab uske saare (ya kam se kam aadhe) words image se match karein
+        if hits and hits >= max(1, (len(tokens) + 1) // 2):
+            scored.append((hits / len(tokens), keyword))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [kw for _, kw in scored[:limit]]
+
+
 def call_trend_cmo(account_key: str, boards: dict = None, trends: dict = None):
     # Lazy import prevents the CMO's regular path from forming an import cycle.
     from mastermind import node_cmo as n
@@ -177,13 +212,19 @@ def call_trend_cmo(account_key: str, boards: dict = None, trends: dict = None):
         return None
 
     keyword_pool = trend["keywords"] or [trend["trend"]]
-    keywords = random.sample(keyword_pool, min(3, len(keyword_pool)))
+    # Board ka naam banane ke liye poora trend pool chalega (random)
+    board_keywords = random.sample(keyword_pool, min(3, len(keyword_pool)))
+    # Pin ke title/desc/tags ke liye sirf image se match karne wale keywords
+    keywords = _pick_relevant_keywords(keyword_pool, row)
+    logger.info(
+        f"   [{account_key}] Trend keywords matched to image: {keywords or 'NONE (copy follows image only)'}"
+    )
 
     # ---- SMART BOARD CREATOR LOGIC ----
     board_id = str(trend.get("board_id", "")).strip()
     if not board_id:
         logger.info(f"⚠️ No Board ID found for '{trend['trend']}'. Starting auto-creation...")
-        board_id = _ensure_board_exists(trend["trend"], keywords, account_key)
+        board_id = _ensure_board_exists(trend["trend"], board_keywords, account_key)
         trend["board_id"] = board_id
 
     # FIX: board nahi mila/bana to trend pin mat banao — regular flow chale
@@ -207,7 +248,8 @@ def call_trend_cmo(account_key: str, boards: dict = None, trends: dict = None):
         if value.strip()
     ]
     niche = random.choice(niche_affinity) if niche_affinity else "home"
-    row["tags"] = ",".join(_camel(keyword) for keyword in keywords)
+    if keywords:
+        row["tags"] = ",".join(_camel(keyword) for keyword in keywords)
 
     # FIX: boards_formatted / trends_formatted khali — trend mode me LLM board
     # select na kare (board already trend ka fixed hai).
@@ -221,12 +263,13 @@ def call_trend_cmo(account_key: str, boards: dict = None, trends: dict = None):
         trends_formatted="",
     ) + f"""
 
-TREND MODE (IMPORTANT — overrides the account's default mood)
+TREND MODE
 Active trend: {trend['trend']}
-Trend keywords for this pin: {', '.join(keywords)}
-- Follow the trend's mood and theme even if the account profile says otherwise.
-- Title and description MUST naturally use at least one trend keyword.
-- Tags MUST include CamelCase versions of these keywords: {', '.join(_camel(k) for k in keywords)}
+Trend keywords that match this image: {', '.join(keywords) if keywords else 'none — write only about what the image shows'}
+- IMAGE-FIRST RULE: title, description, alt_text and tags MUST describe the exact scene in the T2I Base above.
+- NEVER mention subjects that are not in the image (e.g. costumes, nails, makeup, recipes) unless the T2I Base contains them.
+- Match the trend's seasonal mood, but the scene itself must stay exactly as in the T2I Base.
+{('- Title and description should naturally use at least one of the matching keywords above.' + chr(10) + '- Tags MUST include CamelCase versions of: ' + ', '.join(_camel(k) for k in keywords)) if keywords else ''}
 - Keep the JSON format exactly as specified above."""
 
     result = None
@@ -255,14 +298,15 @@ Trend keywords for this pin: {', '.join(keywords)}
             str(row.get("description", "")).strip()
             or f"{trend['trend']} aesthetic."
         )
+        lead_kw = keywords[0] if keywords else label
         result = {
             "pin_type": "VIRAL_PIN",
             "strategy": f"Trend Direct (no LLM) — {trend['trend']}",
             "vibe": description[:80],
-            "title": f"{keywords[0].title()} Ideas You'll Want To Save"[:90],
+            "title": f"{lead_kw.title()} Ideas You'll Want To Save"[:90],
             "description": description[:380],
             "tags": [],
-            "alt_text": f"{label} — {keywords[0]} aesthetic photography"[:200],
+            "alt_text": f"{label} — {lead_kw} aesthetic photography"[:200],
             "visual_prompt": t2i_base.rstrip(", ")
             + ("" if "4K ultra HD" in t2i_base else _TAIL),
         }
@@ -282,5 +326,7 @@ Trend keywords for this pin: {', '.join(keywords)}
     result["selected_board_niche"] = "trend"
     result["board_locked"] = True   # node_board_selector isko dekh kar Groq skip karega
 
-    _apply_trend_rules(result, trend, keywords)
+    # Keywords tabhi force karo jab wo image se match karte hon
+    if keywords:
+        _apply_trend_rules(result, trend, keywords)
     return result
