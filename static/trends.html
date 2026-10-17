@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090b14">
+  <title>Trends — Pinteresto</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%8C%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090b14;
+      --surface: rgba(255,255,255,.045);
+      --surface-2: rgba(255,255,255,.07);
+      --border: rgba(255,255,255,.09);
+      --text: #edf0fa;
+      --muted: #929bb3;
+      --quiet: #65708b;
+      --purple: #ad7bff;
+      --blue: #67a4ff;
+      --green: #61dda1;
+      --red: #ff7e87;
+      --mono: "JetBrains Mono", monospace;
+      --sans: "Syne", sans-serif;
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(ellipse at 90% 0%, rgba(124,58,237,.18), transparent 38rem),
+        radial-gradient(ellipse at 0% 65%, rgba(59,130,246,.11), transparent 32rem),
+        var(--bg);
+      font-family: var(--sans);
+    }
+    button, input, textarea, select { font: inherit; }
+    button { color: inherit; }
+    a { color: inherit; text-decoration: none; }
+    .shell { width: min(100% - 32px, 900px); margin: 0 auto; padding: 22px 0 56px; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+    .brand { display: flex; align-items: center; gap: 11px; }
+    .brand-mark {
+      width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px;
+      background: linear-gradient(140deg, #8b43f5, #4387ee); box-shadow: 0 8px 28px #7937d94a;
+      font-size: 19px;
+    }
+    .brand-name { font-size: 17px; font-weight: 800; letter-spacing: -.4px; }
+    .brand > span:last-child { display: grid; gap: 3px; }
+    .brand-sub { display: block; }
+    .brand-sub { margin-top: 3px; color: var(--quiet); font: 9px var(--mono); letter-spacing: 1.2px; }
+    .back-link { color: var(--muted); font: 11px var(--mono); transition: color .2s; }
+    .back-link:hover { color: var(--text); }
+    .hero { padding: 42px 0 25px; }
+    .eyebrow { color: var(--purple); font: 10px var(--mono); letter-spacing: 1.7px; text-transform: uppercase; }
+    h1 { margin: 10px 0 8px; font-size: clamp(30px, 7vw, 48px); line-height: 1.05; letter-spacing: -1.7px; }
+    .hero p { max-width: 610px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.7; }
+    .tabs {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; padding: 5px;
+      border: 1px solid var(--border); border-radius: 14px; background: #ffffff08;
+    }
+    .tab {
+      border: 0; border-radius: 10px; padding: 12px 8px; background: transparent;
+      color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 700;
+      transition: background .2s, color .2s, box-shadow .2s;
+    }
+    .tab[aria-selected="true"] { color: white; background: #8b5cf633; box-shadow: inset 0 0 0 1px #a978ff3b; }
+    .panel { display: none; padding-top: 20px; }
+    .panel.active { display: block; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 3px 0 15px; }
+    h2 { margin: 0; font-size: 18px; letter-spacing: -.4px; }
+    .section-hint { margin-top: 5px; color: var(--quiet); font: 10px var(--mono); }
+    .button {
+      min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 0 15px; border: 1px solid var(--border); border-radius: 12px;
+      background: var(--surface-2); color: var(--text); cursor: pointer;
+      font-size: 12px; font-weight: 700; transition: transform .15s, border-color .15s, opacity .15s;
+    }
+    .button:hover:not(:disabled) { transform: translateY(-1px); border-color: #a978ff70; }
+    .button:disabled { cursor: wait; opacity: .55; }
+    .button-primary { border-color: transparent; background: linear-gradient(120deg, #8041dc, #426fe0); box-shadow: 0 8px 22px #6b3bd329; }
+    .button-small { min-height: 34px; padding: 0 11px; border-radius: 10px; font-size: 11px; }
+    .cards { display: grid; gap: 12px; }
+    .card {
+      padding: 17px; border: 1px solid var(--border); border-radius: var(--radius);
+      background: linear-gradient(145deg, #ffffff0b, #ffffff04); box-shadow: 0 14px 36px #00000016;
+    }
+    .card-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .trend-name { min-width: 0; overflow-wrap: anywhere; font-size: 16px; font-weight: 800; }
+    .prompt-count { flex: 0 0 auto; color: var(--muted); font: 10px var(--mono); }
+    .trend-meta { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-top: 15px; }
+    .keywords { display: flex; flex: 1; flex-wrap: wrap; gap: 6px; }
+    .keyword {
+      max-width: 100%; padding: 6px 9px; border: 1px solid #a978ff24; border-radius: 999px;
+      background: #9c67f30d; color: #c6b1ed; overflow-wrap: anywhere; font: 9px var(--mono);
+    }
+    .empty-keywords { color: var(--quiet); font: 10px var(--mono); }
+    .card-actions { display: flex; align-items: center; gap: 9px; margin-top: 15px; }
+    .switch-wrap { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font: 10px var(--mono); cursor: pointer; }
+    .switch { position: relative; width: 41px; height: 24px; display: inline-block; }
+    .switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    .switch-track { position: absolute; inset: 0; border-radius: 20px; background: #394157; transition: background .2s; }
+    .switch-track::after {
+      content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+      border-radius: 50%; background: white; transition: transform .2s;
+    }
+    .switch input:checked + .switch-track { background: #37bd81; }
+    .switch input:checked + .switch-track::after { transform: translateX(17px); }
+    .switch input:focus-visible + .switch-track { outline: 2px solid var(--blue); outline-offset: 3px; }
+    .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+    .stat { padding: 17px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+    .stat-label { color: var(--muted); font: 9px var(--mono); letter-spacing: 1px; text-transform: uppercase; }
+    .stat-value { margin-top: 10px; font-size: 25px; font-weight: 800; letter-spacing: -.7px; }
+    .stat-note { margin-top: 4px; color: var(--quiet); font: 9px var(--mono); }
+    .progress { width: 100%; height: 7px; margin-top: 15px; overflow: hidden; border: 0; border-radius: 8px; background: #ffffff12; }
+    .progress::-webkit-progress-bar { border-radius: 8px; background: #ffffff12; }
+    .progress::-webkit-progress-value { border-radius: 8px; background: linear-gradient(90deg, #8244e8, #55a0ff); }
+    .progress::-moz-progress-bar { border-radius: 8px; background: linear-gradient(90deg, #8244e8, #55a0ff); }
+    .status-chip { padding: 5px 9px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font: 9px var(--mono); }
+    .status-chip.on { border-color: #61dda155; background: #61dda111; color: var(--green); }
+    .status-chip.off { background: #ffffff08; }
+    .form-card { padding: 19px; }
+    .field { display: grid; gap: 8px; margin-top: 17px; }
+    .field label { color: var(--muted); font: 10px var(--mono); letter-spacing: .5px; }
+    .control {
+      width: 100%; padding: 12px 13px; border: 1px solid var(--border); border-radius: 11px;
+      background: #080a13; color: var(--text); outline: none; font-size: 13px;
+    }
+    .control:focus { border-color: #9d71ef; box-shadow: 0 0 0 3px #9d71ef20; }
+    textarea.control { min-height: 100px; resize: vertical; line-height: 1.6; }
+    select.control { appearance: none; }
+    .hint { color: var(--quiet); font: 10px var(--mono); line-height: 1.6; }
+    .file-picker {
+      padding: 22px 16px; border: 1px dashed #8f74bd70; border-radius: 15px; background: #8b5cf30b;
+      text-align: center; transition: border-color .2s, background .2s;
+    }
+    .file-picker:hover { border-color: #b48cff; background: #8b5cf315; }
+    .file-picker input { display: block; width: 100%; color: var(--muted); font: 11px var(--mono); }
+    .upload-icon { margin-bottom: 9px; font-size: 24px; }
+    .upload-list { margin-top: 12px; color: var(--muted); font: 10px var(--mono); line-height: 1.8; overflow-wrap: anywhere; }
+    .upload-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
+    .notice { min-height: 20px; margin: 12px 0 0; color: var(--muted); font: 10px var(--mono); line-height: 1.6; white-space: pre-wrap; }
+    .notice.error { color: var(--red); }
+    .notice.success { color: var(--green); }
+    .empty {
+      padding: 35px 18px; border: 1px dashed var(--border); border-radius: var(--radius);
+      color: var(--muted); text-align: center; font-size: 12px; line-height: 1.7;
+    }
+    .empty strong { display: block; margin-bottom: 5px; color: var(--text); font-size: 14px; }
+    dialog {
+      width: min(100% - 28px, 500px); padding: 0; border: 1px solid var(--border);
+      border-radius: 18px; background: #101321; color: var(--text); box-shadow: 0 24px 80px #000a;
+    }
+    dialog::backdrop { background: #03040acc; backdrop-filter: blur(5px); }
+    .dialog-inner { padding: 21px; }
+    .dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
+    .dialog-head h2 { font-size: 18px; }
+    .icon-button { width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 10px; background: transparent; cursor: pointer; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+    @media (min-width: 700px) {
+      .shell { padding-top: 30px; }
+      .hero { padding-top: 54px; }
+      .cards { grid-template-columns: 1fr 1fr; }
+      .card { padding: 19px; }
+    }
+    @media (max-width: 440px) {
+      .shell { width: min(100% - 24px, 900px); }
+      .hero { padding-top: 33px; }
+      .section-head { align-items: flex-start; }
+      .section-head .button { min-height: 38px; padding: 0 10px; font-size: 10px; }
+      .status-grid { gap: 8px; }
+      .stat { padding: 13px; }
+      .stat-value { font-size: 21px; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Pinteresto dashboard">
+        <span class="brand-mark" aria-hidden="true">📌</span>
+        <span><span class="brand-name">pinteresto</span><span class="brand-sub">TREND CONTROL</span></span>
+      </a>
+      <a class="back-link" href="/">← DASHBOARD</a>
+    </header>
+
+    <section class="hero">
+      <div class="eyebrow">Campaign control</div>
+      <h1>Trends, on your terms.</h1>
+      <p>Add a trend, queue reference images, and choose when the CMO should use it. Your regular pin workflow stays unchanged when every trend is off.</p>
+    </section>
+
+    <nav class="tabs" role="tablist" aria-label="Trend management">
+      <button class="tab" id="tab-trends" type="button" role="tab" aria-selected="true" aria-controls="panel-trends">Trends</button>
+      <button class="tab" id="tab-upload" type="button" role="tab" aria-selected="false" aria-controls="panel-upload">Upload</button>
+      <button class="tab" id="tab-status" type="button" role="tab" aria-selected="false" aria-controls="panel-status">Status</button>
+    </nav>
+
+    <section class="panel active" id="panel-trends" role="tabpanel" aria-labelledby="tab-trends">
+      <div class="section-head">
+        <div><h2>Your trends</h2><div class="section-hint">Manual switch · user-defined keywords</div></div>
+        <button class="button button-primary" id="add-trend-open" type="button">＋ Add trend</button>
+      </div>
+      <div class="cards" id="trend-cards" aria-live="polite"></div>
+      <p class="notice" id="trends-notice" role="status"></p>
+    </section>
+
+    <section class="panel" id="panel-upload" role="tabpanel" aria-labelledby="tab-upload">
+      <div class="section-head">
+        <div><h2>Queue images</h2><div class="section-hint">Uploads go to Drive first; analysis runs in the background</div></div>
+      </div>
+      <form class="card form-card" id="upload-form">
+        <div class="field" style="margin-top:0">
+          <label for="upload-target">DESTINATION</label>
+          <select class="control" id="upload-target" name="target" required>
+            <option value="Regular">Regular · existing vision queue</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="image-files">IMAGES</label>
+          <div class="file-picker">
+            <div class="upload-icon" aria-hidden="true">▧</div>
+            <input id="image-files" type="file" name="files" accept="image/*" multiple required>
+            <div class="hint" style="margin-top:10px">Choose one or more images · up to 15 MB each</div>
+          </div>
+          <div class="upload-list" id="upload-file-list" aria-live="polite">No images selected</div>
+        </div>
+        <div class="upload-actions">
+          <button class="button button-primary" id="upload-submit" type="submit">Upload images</button>
+          <span class="hint">Sent in batches of five.</span>
+        </div>
+        <p class="notice" id="upload-notice" role="status"></p>
+      </form>
+    </section>
+
+    <section class="panel" id="panel-status" role="tabpanel" aria-labelledby="tab-status">
+      <div class="section-head">
+        <div><h2>Feeder status</h2><div class="section-hint">Trend prompt processing and active campaign switches</div></div>
+        <button class="button button-small" id="status-refresh" type="button">↻ Refresh</button>
+      </div>
+      <div class="status-grid">
+        <article class="stat">
+          <div class="stat-label">Images processed today</div>
+          <div class="stat-value" id="daily-count">—</div>
+          <progress class="progress" id="daily-progress" max="25" value="0" aria-label="Daily image processing limit"></progress>
+          <div class="stat-note">Trend feeder daily limit</div>
+        </article>
+        <article class="stat">
+          <div class="stat-label">Active trends</div>
+          <div class="stat-value" id="active-count">—</div>
+          <div class="stat-note" id="active-note">Switches are managed manually</div>
+        </article>
+      </div>
+      <div class="cards" id="status-cards" aria-live="polite"></div>
+      <p class="notice" id="status-notice" role="status"></p>
+    </section>
+  </main>
+
+  <dialog id="trend-dialog" aria-labelledby="dialog-title">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <div><div class="eyebrow" id="dialog-eyebrow">New campaign</div><h2 id="dialog-title">Add a trend</h2></div>
+        <button class="icon-button" id="dialog-close" type="button" aria-label="Close">×</button>
+      </div>
+      <form id="trend-form">
+        <div class="field" id="trend-name-field">
+          <label for="trend-name">TREND NAME</label>
+          <input class="control" id="trend-name" name="trend" maxlength="80" required placeholder="e.g. Halloween">
+        </div>
+        <div class="field">
+          <label for="trend-keywords">PINTEREST KEYWORDS</label>
+          <textarea class="control" id="trend-keywords" name="keywords" maxlength="1000" placeholder="pumpkin decor, spooky season, autumn tablescape"></textarea>
+          <div class="hint">Separate keywords with commas. These are used in the pin title, description, and tags.</div>
+        </div>
+        <p class="notice" id="dialog-notice" role="status"></p>
+        <div class="dialog-actions">
+          <button class="button" id="dialog-cancel" type="button">Cancel</button>
+          <button class="button button-primary" id="dialog-save" type="submit">Add trend</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <script>
+    const state = { trends: [], activeTab: "trends", editingTrend: null };
+    const $ = (selector) => document.querySelector(selector);
+    const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    })[char]);
+
+    function setNotice(selector, text, kind = "") {
+      const element = $(selector);
+      element.textContent = text;
+      element.className = `notice${kind ? ` ${kind}` : ""}`;
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, options);
+      const text = await response.text();
+      let payload = {};
+      try { payload = text ? JSON.parse(text) : {}; }
+      catch { payload = { detail: text }; }
+      if (!response.ok) {
+        const detail = payload?.detail || payload?.message || `Request failed (${response.status})`;
+        throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+      }
+      return payload;
+    }
+
+    function renderTrends() {
+      const container = $("#trend-cards");
+      $("#upload-target").innerHTML = '<option value="Regular">Regular · existing vision queue</option>' +
+        state.trends.map((trend) => `<option value="${escapeHtml(trend.trend)}">${escapeHtml(trend.trend)}</option>`).join("");
+      if (!state.trends.length) {
+        container.innerHTML = '<div class="empty"><strong>No trends yet</strong>Add a trend to create its Drive folder and begin queuing reference images.</div>';
+        return;
+      }
+      container.innerHTML = state.trends.map((trend, index) => {
+        const keywords = trend.keywords?.length
+          ? trend.keywords.map((keyword) => `<span class="keyword">${escapeHtml(keyword)}</span>`).join("")
+          : '<span class="empty-keywords">No keywords added</span>';
+        return `<article class="card">
+          <div class="card-top">
+            <div class="trend-name">${escapeHtml(trend.trend)}</div>
+            <div class="prompt-count">${Number(trend.prompts) || 0} prompts</div>
+          </div>
+          <div class="trend-meta"><div class="keywords">${keywords}</div>
+            <button class="button button-small" type="button" data-edit="${index}">Edit</button>
+          </div>
+          <div class="card-actions">
+            <label class="switch-wrap">
+              <span class="switch"><input type="checkbox" data-toggle="${index}" aria-label="Turn ${escapeHtml(trend.trend)} ${trend.active ? "off" : "on"}" ${trend.active ? "checked" : ""}><span class="switch-track"></span></span>
+              <span>${trend.active ? "ON · eligible for posting" : "OFF · regular flow"}</span>
+            </label>
+          </div>
+        </article>`;
+      }).join("");
+    }
+
+    function renderStatus(processedToday, dailyLimit) {
+      const active = state.trends.filter((trend) => trend.active);
+      $("#daily-count").textContent = `${processedToday} / ${dailyLimit}`;
+      $("#daily-progress").max = Math.max(1, dailyLimit);
+      $("#daily-progress").value = Math.min(processedToday, dailyLimit);
+      $("#active-count").textContent = String(active.length);
+      $("#active-note").textContent = active.length
+        ? `${active.map((trend) => trend.trend).join(", ")}`
+        : "Regular CMO strategy is in use";
+      const cards = $("#status-cards");
+      if (!state.trends.length) {
+        cards.innerHTML = '<div class="empty"><strong>No campaign status to show</strong>Add a trend to start building its prompt library.</div>';
+        return;
+      }
+      cards.innerHTML = state.trends.map((trend) => `<article class="card">
+        <div class="card-top">
+          <div class="trend-name">${escapeHtml(trend.trend)}</div>
+          <span class="status-chip ${trend.active ? "on" : "off"}">${trend.active ? "ACTIVE" : "OFF"}</span>
+        </div>
+        <div class="trend-meta">
+          <span class="hint">${Number(trend.prompts) || 0} analyzed prompt${Number(trend.prompts) === 1 ? "" : "s"}</span>
+          <span class="hint">${trend.drive_folder_id ? "Drive folder ready" : "Drive folder not configured"}</span>
+        </div>
+      </article>`).join("");
+    }
+
+    async function loadTrends(showError = true) {
+      try {
+        state.trends = await api("/trends");
+        renderTrends();
+        if (state.activeTab === "status") await loadStatus();
+        else setNotice("#trends-notice", "");
+        return true;
+      } catch (error) {
+        if (showError) setNotice("#trends-notice", error.message, "error");
+        $("#trend-cards").innerHTML = `<div class="empty"><strong>Trends could not be loaded</strong>${escapeHtml(error.message)}</div>`;
+        return false;
+      }
+    }
+
+    async function loadStatus() {
+      setNotice("#status-notice", "Refreshing trend status…");
+      try {
+        const [trends, feeder] = await Promise.all([
+          api("/trends"),
+          api("/trends/feeder-status")
+        ]);
+        state.trends = trends;
+        renderTrends();
+        renderStatus(feeder.processed_today, feeder.daily_limit);
+        setNotice("#status-notice", "Updated just now.", "success");
+      } catch (error) {
+        setNotice("#status-notice", error.message, "error");
+      }
+    }
+
+    function selectTab(name) {
+      state.activeTab = name;
+      document.querySelectorAll(".tab").forEach((tab) => {
+        const selected = tab.id === `tab-${name}`;
+        tab.setAttribute("aria-selected", String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+      });
+      document.querySelectorAll(".panel").forEach((panel) => {
+        panel.classList.toggle("active", panel.id === `panel-${name}`);
+      });
+      if (name === "upload") loadTrends(false);
+      if (name === "status") loadStatus();
+    }
+
+    function openDialog(mode, trend = null) {
+      state.editingTrend = trend;
+      const editing = mode === "edit";
+      $("#dialog-eyebrow").textContent = editing ? "Campaign keywords" : "New campaign";
+      $("#dialog-title").textContent = editing ? `Edit ${trend.trend}` : "Add a trend";
+      $("#trend-name-field").hidden = editing;
+      $("#trend-name").required = !editing;
+      $("#trend-name").value = "";
+      $("#trend-keywords").value = editing ? (trend.keywords || []).join(", ") : "";
+      $("#dialog-save").textContent = editing ? "Save keywords" : "Add trend";
+      setNotice("#dialog-notice", "");
+      $("#trend-dialog").showModal();
+      if (editing) $("#trend-keywords").focus();
+      else $("#trend-name").focus();
+    }
+
+    function closeDialog() {
+      $("#trend-dialog").close();
+      state.editingTrend = null;
+    }
+
+    document.querySelectorAll(".tab").forEach((tab) => {
+      tab.addEventListener("click", () => selectTab(tab.id.replace("tab-", "")));
+    });
+    $("#add-trend-open").addEventListener("click", () => openDialog("add"));
+    $("#dialog-close").addEventListener("click", closeDialog);
+    $("#dialog-cancel").addEventListener("click", closeDialog);
+    $("#status-refresh").addEventListener("click", loadStatus);
+
+    $("#trend-cards").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-edit]");
+      if (button) openDialog("edit", state.trends[Number(button.dataset.edit)]);
+    });
+
+    $("#trend-cards").addEventListener("change", async (event) => {
+      const toggle = event.target.closest("[data-toggle]");
+      if (!toggle) return;
+      const index = Number(toggle.dataset.toggle);
+      const trend = state.trends[index];
+      const previous = trend.active;
+      const active = toggle.checked;
+      trend.active = active;
+      toggle.disabled = true;
+      renderTrends();
+      setNotice("#trends-notice", `${active ? "Turning on" : "Turning off"} ${trend.trend}…`);
+      try {
+        await api("/trends/toggle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ trend: trend.trend, active })
+        });
+        setNotice("#trends-notice", `${trend.trend} is ${active ? "on" : "off"}.`, "success");
+        if (state.activeTab === "status") await loadStatus();
+      } catch (error) {
+        trend.active = previous;
+        renderTrends();
+        setNotice("#trends-notice", error.message, "error");
+      }
+    });
+
+    $("#trend-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const save = $("#dialog-save");
+      save.disabled = true;
+      setNotice("#dialog-notice", "Saving…");
+      const keywords = $("#trend-keywords").value.trim();
+      let warning = "";
+      try {
+        if (state.editingTrend) {
+          await api("/trends/keywords", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ trend: state.editingTrend.trend, keywords })
+          });
+        } else {
+          const result = await api("/trends/add", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              trend: $("#trend-name").value.trim(),
+              keywords
+            })
+          });
+          warning = result.warning || "";
+        }
+        closeDialog();
+        await loadTrends();
+        if (warning) setNotice("#trends-notice", warning, "error");
+        if (state.activeTab === "status") await loadStatus();
+      } catch (error) {
+        setNotice("#dialog-notice", error.message, "error");
+      } finally {
+        save.disabled = false;
+      }
+    });
+
+    $("#image-files").addEventListener("change", (event) => {
+      const files = Array.from(event.target.files || []);
+      $("#upload-file-list").textContent = files.length
+        ? `${files.length} image${files.length === 1 ? "" : "s"} selected · ${files.map((file) => file.name).join(", ")}`
+        : "No images selected";
+      setNotice("#upload-notice", "");
+    });
+
+    $("#upload-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const files = Array.from($("#image-files").files || []);
+      if (!files.length) {
+        setNotice("#upload-notice", "Choose at least one image.", "error");
+        return;
+      }
+      const target = $("#upload-target").value;
+      const button = $("#upload-submit");
+      button.disabled = true;
+      let queued = 0;
+      let failed = [];
+      const batches = [];
+      for (let index = 0; index < files.length; index += 5) batches.push(files.slice(index, index + 5));
+      try {
+        for (let index = 0; index < batches.length; index++) {
+          setNotice("#upload-notice", `Uploading batch ${index + 1} of ${batches.length}…`);
+          const formData = new FormData();
+          formData.append("target", target);
+          batches[index].forEach((file) => formData.append("files", file, file.name));
+          try {
+            const result = await api("/trends/upload", { method: "POST", body: formData });
+            queued += result.queued || 0;
+            failed = failed.concat(result.failed || []);
+          } catch (error) {
+            failed = failed.concat(batches[index].map((file) => ({ file: file.name, error: error.message })));
+          }
+        }
+        const failureText = failed.length
+          ? `\n${failed.map((item) => `${item.file}: ${item.error}`).join("\n")}`
+          : "";
+        const message = `${queued} image${queued === 1 ? "" : "s"} queued for ${target}.${failureText}`;
+        setNotice("#upload-notice", message, failed.length ? (queued ? "" : "error") : "success");
+        if (queued) {
+          $("#image-files").value = "";
+          $("#upload-file-list").textContent = "No images selected";
+        }
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    loadTrends();
+  </script>
+</body>
+</html>

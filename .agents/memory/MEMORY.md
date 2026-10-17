@@ -1,0 +1,1 @@
+- [Python package setup side effects](python-package-setup.md) — inspect imported-project config and dependency diffs after installs; restore unrelated `.replit` changes through the validator.

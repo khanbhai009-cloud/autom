@@ -1202,6 +1202,21 @@ def _call_cmo_for_account(account_key: str, metrics: dict,
     3. Cerebras fails (non-429)   → _build_from_style_data() with sheet_row (zero LLM)
     ─────────────────────────────────────────────────────────────────────
     """
+    # ── TREND PATH — any trend failure falls through to the regular strategy ──
+    try:
+        from mastermind.trend_cmo import call_trend_cmo
+
+        trend_result = call_trend_cmo(account_key, boards, trends)
+        if trend_result:
+            return trend_result
+    except Exception as trend_error:
+        logger.warning(
+            "[%s] Trend path failed; using regular flow: %s: %s",
+            account_key,
+            type(trend_error).__name__,
+            trend_error,
+        )
+
     ratio        = _pick_ratio()
     profile      = _ACCOUNT_PROFILES[account_key]
     forced_style = _get_next_style(account_key)   # ← STYLE ROTATION ENGINE

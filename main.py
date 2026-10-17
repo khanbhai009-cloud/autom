@@ -23,6 +23,9 @@ from tools.visions_ai import (
     request_stop as vf_request_stop,
     request_start as vf_request_start,
 )
+from sheets.trends import init_trend_tabs
+from tools.trend_feeder import trend_feeder_loop
+from trend_routes import router as trend_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
@@ -232,6 +235,11 @@ async def lifespan(app: FastAPI):
     except Exception as _e:
         logger.warning(f"⚠️ Sheet auto-init skipped — {_e}")
 
+    try:
+        init_trend_tabs()
+    except Exception as _e:
+        logger.warning(f"⚠️ Trend tabs init failed: {_e}")
+
     # Daily re-scheduler — fires at midnight, schedules next 20 pins fresh
     scheduler.add_job(schedule_daily_pins, "cron", hour=0, minute=0, id="daily_scheduler")
 
@@ -277,18 +285,29 @@ async def lifespan(app: FastAPI):
                 await asyncio.sleep(300)
 
     asyncio.create_task(vision_feeder_loop())
+    trend_task = asyncio.create_task(trend_feeder_loop())
 
     yield
+    trend_task.cancel()
+    try:
+        await trend_task
+    except asyncio.CancelledError:
+        pass
     scheduler.shutdown()
 
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(title="Pinteresto Mastermind", lifespan=lifespan)
+app.include_router(trend_router)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def dashboard():
     return FileResponse("static/index.html")
+
+@app.get("/trends-ui")
+async def trends_dashboard():
+    return FileResponse("static/trends.html")
 
 # ── Stats ──────────────────────────────────────────────────────────────────────
 @app.get("/api/stats")

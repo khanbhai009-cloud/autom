@@ -8,6 +8,7 @@ Pillow
 pydantic
 gspread
 google-auth
+google-auth-oauthlib
 google-genai
 google-generativeai
 google-api-python-client
@@ -22,3 +23,4 @@ pytz
 tenacity
 firebase-admin
 dnspython
+python-multipart
