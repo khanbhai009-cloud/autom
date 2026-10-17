@@ -112,29 +112,23 @@ async def update_keywords(body: Keywords):
 
 @router.post("/upload")
 async def upload(target: str = Form(...), files: List[UploadFile] = File(...)):
-    """Queue images in Drive; vision analysis is left to the background feeder."""
-    from tools import drive_upload
-
-    if not drive_upload.is_configured():
-        raise HTTPException(
-            503,
-            "Drive OAuth is not configured. Set GOOGLE_OAUTH_CLIENT_ID, "
-            "GOOGLE_OAUTH_CLIENT_SECRET, and GOOGLE_OAUTH_REFRESH_TOKEN.",
-        )
+    """Queue images in Drive using Service Account."""
     if not files:
         raise HTTPException(400, "Choose at least one image.")
 
     normalized_target = target.strip()
+    
+    # Regular ke liye tumhari di hui Drive folder ID direct set ki gayi hai
     if normalized_target.casefold() == REGULAR.casefold():
-        from tools.visions_ai import DRIVE_INPUT_FOLDER_ID
-
-        folder_id = DRIVE_INPUT_FOLDER_ID
+        folder_id = "1pazvTr_I75pqCGZW-OEwr0Bs2q_8tFnu"
         normalized_target = REGULAR
     else:
         try:
             trends = await asyncio.to_thread(T.get_trends)
         except Exception as error:
             raise HTTPException(503, "Trend settings are unavailable.") from error
+        
+        # Trend wali id automatically sheets (T.get_trends) se aayegi
         selected = next(
             (
                 trend for trend in trends
@@ -147,12 +141,22 @@ async def upload(target: str = Form(...), files: List[UploadFile] = File(...)):
         folder_id = selected["drive_folder_id"]
         normalized_target = selected["trend"]
 
+    # Naya Service Account upload logic
+    from tools import visions_ai as v
+    import io
+    from googleapiclient.http import MediaIoBaseUpload
+
+    if v.drive_service is None:
+        raise HTTPException(503, "Drive service account is unavailable.")
+
     saved = 0
     failed = []
+    
     for upload_file in files:
         filename = Path(upload_file.filename or "image.jpg").name
         extension = Path(filename).suffix.casefold()
         content_type = (upload_file.content_type or "").casefold()
+        
         if not content_type.startswith("image/") and extension not in IMAGE_EXTENSIONS:
             failed.append({"file": filename, "error": "Only image files are accepted."})
             continue
@@ -164,14 +168,16 @@ async def upload(target: str = Form(...), files: List[UploadFile] = File(...)):
                     {"file": filename, "error": "Image exceeds the 15 MB upload limit."}
                 )
                 continue
-            await asyncio.to_thread(
-                drive_upload.upload_image,
-                folder_id,
-                filename,
-                data,
-                content_type or "image/jpeg",
-            )
+                
+            # Background thread me Google Drive API (Service Account) se upload execute karna
+            def do_upload():
+                metadata = {"name": filename, "parents": [folder_id]}
+                media = MediaIoBaseUpload(io.BytesIO(data), mimetype=content_type or "image/jpeg", resumable=True)
+                v.drive_service.files().create(body=metadata, media_body=media, fields="id").execute()
+
+            await asyncio.to_thread(do_upload)
             saved += 1
+            
         except Exception as error:
             failed.append(
                 {"file": filename, "error": str(error).strip()[:200] or "Upload failed."}
@@ -182,6 +188,7 @@ async def upload(target: str = Form(...), files: List[UploadFile] = File(...)):
     if not saved:
         message = "; ".join(item["error"] for item in failed[:3])
         raise HTTPException(502, f"No images were uploaded. {message}")
+        
     return {
         "ok": True,
         "target": normalized_target,
