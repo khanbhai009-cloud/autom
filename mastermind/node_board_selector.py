@@ -13,6 +13,9 @@ Writes to  : a1_cmo_strategy["board_id"] + ["board_name"]
 
 The agent.py publish_next_pin() then reads strategy["board_id"] and passes it
 to tools/make_webhook.py → Pinterest via Make.com.
+
+TREND PINS: trend_cmo.py sets board_locked=True + selected_board_id. In that case
+this node does NOT call the LLM selector — the trend's own board is used as-is.
 """
 
 import logging
@@ -50,7 +53,7 @@ def _build_board_keywords(strategy: dict) -> list:
     # 3. Niche — CMO writes a single string (e.g. "home", "cozy", "garden")
     #    may also be comma-separated if CMO returned niche_affinity-style
     niche_raw = strategy.get("niche", "") or strategy.get("niche_affinity", "")
-    niche_tokens = [n.strip() for n in niche_raw.split(",") if n.strip()][:3]
+    niche_tokens = [n.strip() for n in str(niche_raw).split(",") if n.strip()][:3]
 
     # 4. Visual style key (e.g. "charming_flower_cottage")
     style = strategy.get("visual_style", "") or strategy.get("style_key", "")
@@ -78,6 +81,16 @@ def _select_for_account(strategy: dict, account_key: str) -> dict:
     """
     if not strategy:
         return strategy
+
+    # ── TREND PIN: board already fixed by trend_cmo → skip LLM selector ──────
+    locked_id = str(strategy.get("selected_board_id", "") or "").strip()
+    if strategy.get("board_locked") and locked_id:
+        locked_name = strategy.get("selected_board_name") or strategy.get("trend") or "trend board"
+        logger.info(
+            f"[BoardSelector] 🔒 {account_key} → trend board locked "
+            f"'{locked_name}' (id={locked_id}) — LLM selector skipped"
+        )
+        return {**strategy, "board_id": locked_id, "board_name": locked_name}
 
     board_keywords = _build_board_keywords(strategy)
     description    = strategy.get("description", "")
