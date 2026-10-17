@@ -92,6 +92,29 @@ def _string(value) -> str:
     return str(value or "").strip()
 
 
+# ---- CHANGE 5: Keyword cleaner (quotes, extra spaces, duplicates hata deta hai) ----
+_QUOTES = "\"'\u201c\u201d\u2018\u2019"
+
+
+def clean_keywords(raw) -> list:
+    """Return a clean keyword list from a messy comma-separated string or list.
+
+    Handles straight/curly quotes, extra spaces, new lines, empty items and
+    case-insensitive duplicates.
+    """
+    if not raw:
+        return []
+    if isinstance(raw, (list, tuple)):
+        raw = ",".join(str(item) for item in raw)
+    seen, result = set(), []
+    for item in str(raw).replace("\n", ",").split(","):
+        word = item.strip().strip(_QUOTES).strip()
+        if word and word.casefold() not in seen:
+            seen.add(word.casefold())
+            result.append(word)
+    return result
+
+
 def get_trends() -> list:
     cached_at, data = _cache["settings"]
     if cached_at and time.monotonic() - cached_at < _TTL:
@@ -109,11 +132,7 @@ def get_trends() -> list:
                 "trend": name,
                 "active": _is_true(row.get("active")),
                 "drive_folder_id": str(row.get("drive_folder_id", "")).strip(),
-                "keywords": [
-                    keyword.strip()
-                    for keyword in str(row.get("keywords", "")).split(",")
-                    if keyword.strip()
-                ],
+                "keywords": clean_keywords(row.get("keywords", "")),
                 "board_id": str(row.get("board_id", "")).strip(),
             }
         )
@@ -142,7 +161,15 @@ def add_trend(trend: str, keywords: str = "", drive_folder_id: str = "") -> bool
         if _find_row(worksheet, name):
             return False
         # ---- CHANGE 3: Add blank space for board_id column at the end ----
-        worksheet.append_row([name, "FALSE", drive_folder_id.strip(), keywords.strip(), ""])
+        worksheet.append_row(
+            [
+                name,
+                "FALSE",
+                drive_folder_id.strip(),
+                ", ".join(clean_keywords(keywords)),
+                "",
+            ]
+        )
         _clear()
         return True
 
@@ -164,7 +191,7 @@ def set_trend_keywords(trend: str, keywords: str) -> bool:
         row = _find_row(worksheet, trend)
         if not row:
             return False
-        worksheet.update_cell(row, 4, keywords.strip())
+        worksheet.update_cell(row, 4, ", ".join(clean_keywords(keywords)))
         _clear()
         return True
 
