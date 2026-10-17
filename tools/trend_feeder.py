@@ -17,43 +17,42 @@ _fail_count = {}
 
 
 def create_trend_folder(name: str) -> str:
-    """Create a trend folder under the configured parent; return empty on failure."""
+    """Create a trend folder using Service Account and grant writer (editor) access."""
     if not TREND_DRIVE_PARENT_ID:
         logger.warning("Trend folder not created — TREND_DRIVE_PARENT_ID is missing.")
         return ""
 
-    try:
-        from tools import drive_upload
-
-        if drive_upload.is_configured():
-            try:
-                return drive_upload.create_folder(name, TREND_DRIVE_PARENT_ID)
-            except Exception as error:
-                logger.warning(
-                    "OAuth folder creation failed; trying service account: %s",
-                    error,
-                )
-    except Exception as error:
-        logger.warning("Drive OAuth folder creation unavailable: %s", error)
-
     if v.drive_service is None:
         logger.warning("Trend folder not created — Google Drive service account is unavailable.")
         return ""
+        
     try:
+        # 1. Service Account se naya folder banana
         metadata = {
             "name": name.strip(),
             "mimeType": "application/vnd.google-apps.folder",
             "parents": [TREND_DRIVE_PARENT_ID],
         }
-        return (
-            v.drive_service.files()
-            .create(body=metadata, fields="id")
-            .execute()["id"]
-        )
-    except Exception:
-        logger.exception("Trend folder creation failed for %s.", name)
-        return ""
+        folder = v.drive_service.files().create(body=metadata, fields="id").execute()
+        folder_id = folder["id"]
 
+        # 2. Dashboard/Upload wale account ko folder ka Editor access dena
+        permission_body = {
+            "type": "user",
+            "role": "writer",  # Google Drive API me 'writer' hi Editor access hota hai
+            "emailAddress": "finisher@root-monolith-474003-b5.iam.gserviceaccount.com"
+        }
+        v.drive_service.permissions().create(
+            fileId=folder_id,
+            body=permission_body,
+            fields="id"
+        ).execute()
+
+        return folder_id
+
+    except Exception:
+        logger.exception("Trend folder creation or permission assignment failed for %s.", name)
+        return ""
 
 def run_trend_feeder() -> int:
     """Process a single batch; return count, or -3 when the daily cap is reached."""
