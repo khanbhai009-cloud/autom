@@ -1,978 +1,558 @@
-# Pinteresto v3 — System Design Document
+# Pinteresto v3 — Current System Design
 
-> **Last updated:** Auto-generated from full codebase analysis.
-> This document is the single source of truth for architecture, data flow, and operational logic.
-
----
-
-## Table of Contents
-
-1. [System Overview](#1-system-overview)
-2. [Architecture Diagram](#2-architecture-diagram)
-3. [File-by-File Breakdown](#3-file-by-file-breakdown)
-4. [Complete Pipeline Flow](#4-complete-pipeline-flow)
-5. [Data Flow](#5-data-flow)
-6. [API & External Services](#6-api--external-services)
-7. [Error Handling & Fallbacks](#7-error-handling--fallbacks)
-8. [Scheduler Logic](#8-scheduler-logic)
-9. [Vision Feeder System](#9-vision-feeder-system)
-10. [Known Issues & TODOs](#10-known-issues--todos)
+> **Updated:** 17 October 2026
+> **Purpose:** Describe the behavior implemented in the current codebase, including the regular pin pipeline and the Trend feature. This document is not a promise that every external service is configured; Google, AI, Firebase, image-hosting, and Make.com access depends on the environment secrets and account permissions.
 
 ---
 
-## 1. System Overview
+## Contents
 
-Pinteresto v3 is a **fully autonomous Pinterest marketing engine**. Once deployed, it requires zero manual intervention: it self-schedules, self-generates content, self-publishes, and self-adapts based on analytics feedback.
-
-### What it does
-
-- **Generates AI art-directed lifestyle images** using a triple-redundant text-to-image pipeline.
-- **Writes viral Pinterest copy** (title, description, tags, alt-text) using a 3-tier LLM stack.
-- **Finds and purchases Amazon affiliate products** matching the niche of each pin.
-- **Writes and publishes SEO blog posts** to Firebase Firestore linked back to each pin.
-- **Posts to Pinterest** via Make.com automation webhooks.
-- **Learns from aesthetics** via a Vision Feeder that analyzes Google Drive inspiration images with Gemini Vision.
-
-### Accounts
-
-| Account | Niche | Styles | Pinterest Boards |
-|---------|-------|--------|-----------------|
-| `account_1` | HomeDecor & Lifestyle | 11 styles | home, kitchen, cozy, gadgets, organize |
-| `account_2` | Tech & WFH Aesthetic | 5 styles | tech, budget, phone, smarthome, wfh |
-
-### Scale
-
-- **20 pins/day** (10 per account)
-- **60–72 minute gaps** between pins, randomized
-- **Interleaved** A1/A2 posting
-- **24/7 autonomous** operation via APScheduler
+1. [System at a glance](#1-system-at-a-glance)
+2. [Architecture](#2-architecture)
+3. [Startup and scheduling](#3-startup-and-scheduling)
+4. [Mastermind graph and strategy selection](#4-mastermind-graph-and-strategy-selection)
+5. [Pin creation and publishing](#5-pin-creation-and-publishing)
+6. [Trend feature](#6-trend-feature)
+7. [Regular Vision Feeder](#7-regular-vision-feeder)
+8. [Data storage](#8-data-storage)
+9. [HTTP interface](#9-http-interface)
+10. [Integrations and configuration](#10-integrations-and-configuration)
+11. [Failures and fallbacks](#11-failures-and-fallbacks)
+12. [Security and operational notes](#12-security-and-operational-notes)
+13. [Code map and inactive paths](#13-code-map-and-inactive-paths)
 
 ---
 
-## 2. Architecture Diagram
+## 1. System at a glance
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         REPLIT HOST                                  │
-│                                                                       │
-│  ┌─────────────────────────────────────────────────────────────────┐ │
-│  │  FastAPI (main.py) — port 5000                                  │ │
-│  │                                                                   │ │
-│  │   /          dashboard HTML                                      │ │
-│  │   /status    scheduler + queue state                            │ │
-│  │   /trigger   manual run                                         │ │
-│  │   /products  Google Sheets product table                        │ │
-│  │   /analytics Pinterest analytics                                │ │
-│  │   /vision/*  Vision Feeder controls                             │ │
-│  └─────────────────────────────────────────────────────────────────┘ │
-│           │ APScheduler (AsyncIOScheduler)                            │
-│           │                                                           │
-│     ┌─────▼──────────────────────────────────┐                       │
-│     │  mastermind_scheduled_job()             │  every 60–72 min     │
-│     │    → run_mastermind(account)            │  interleaved A1/A2   │
-│     └─────────────────────────────────────────┘                       │
-│           │                                                           │
-│     ┌─────▼──────────────────────────────────────────────────────┐   │
-│     │  LangGraph: MASTERMIND GRAPH  (mastermind/graph.py)        │   │
-│     │                                                              │   │
-│     │   ┌──────────────────────┐                                  │   │
-│     │   │ node_data_intelligence│  Reads analytics from Sheets    │   │
-│     │   └──────────┬───────────┘                                  │   │
-│     │              │ MastermindState                               │   │
-│     │   ┌──────────▼───────────┐                                  │   │
-│     │   │  node_cmo_mastermind │  Gemini → Cerebras → hardcoded   │   │
-│     │   │  (Style rotation +   │  Builds visual_prompt, copy,     │   │
-│     │   │   LLM strategy gen)  │  style_key, ratio, niche         │   │
-│     │   └──────────┬───────────┘                                  │   │
-│     │              │                                               │   │
-│     │   ┌──────────▼───────────┐                                  │   │
-│     │   │  node_agent_executor │  Invokes run_agent()             │   │
-│     │   └──────────┬───────────┘                                  │   │
-│     └──────────────┼─────────────────────────────────────────────┘   │
-│                    │                                                   │
-│     ┌──────────────▼─────────────────────────────────────────────┐   │
-│     │  LangGraph: AGENT  (agent.py)                               │   │
-│     │   Tool: fill_missing_niches()   → Sheets product CRUD       │   │
-│     │   Tool: publish_next_pin()      → Full pin pipeline         │   │
-│     └──────────────┬──────────────────────────────────────────────┘   │
-│                    │                                                   │
-│     ┌──────────────▼──────────────────────────────────────────────┐   │
-│     │  publish_next_pin()  (agent.py)                              │   │
-│     │                                                               │   │
-│     │  1. get_pending_products()     ← Google Sheets               │   │
-│     │  2. generate_pin_image()       ← T2I pipeline                │   │
-│     │  3. _upload_to_imgbb()         ← ImgBB hosting               │   │
-│     │  4. _run_inline_blog()         ← Blog pipeline               │   │
-│     │  5. post_to_pinterest()        ← Make.com webhook            │   │
-│     │  6. mark_as_posted()           ← Google Sheets               │   │
-│     └─────────────────────────────────────────────────────────────┘   │
-│                                                                        │
-│  ┌─────────────────────────────────────────────────────────────────┐  │
-│  │  VISION FEEDER (tools/visions_ai.py) — background asyncio loop │  │
-│  │   Google Drive images → Gemini Vision → Prompts_Master (Sheet) │  │
-│  └─────────────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────┘
+Pinteresto is a Python web service that manages two Pinterest publishing accounts. A FastAPI dashboard provides status and manual controls. APScheduler starts the regular publishing cycles. Each cycle runs a LangGraph workflow that loads board and analytics context, asks the CMO to create a pin strategy, selects a board, and calls the publishing agent.
 
-EXTERNAL SERVICES
-─────────────────
-Google Sheets ←→ Products, Prompts_Master, Style_Tracker, Prompt_Tracker,
-                  Vision_Tracker, Analytics_Log, Analytics_logs2
-Firebase Firestore ← Blog posts (SEO articles)
-ImgBB ← Generated pin images (permanent CDN hosting)
-Make.com ← Pinterest posting automation (2 webhooks: A1 + A2)
-Gemini 2.5 Flash ← CMO strategy + Vision Feeder
-Groq llama-3.3-70b ← LLM fallback + fast copywriting
-Cerebras qwen-3-235b ← LLM third-tier
-Cloudflare Workers AI ← T2I primary (FLUX.1-schnell)
-HuggingFace ← T2I secondary (FLUX.1-schnell)
-Pollinations.ai ← T2I last resort
-RapidAPI (Amazon) ← Product search primary
-Apify ← Product search fallback
-Google Drive ← Aesthetic inspiration images (Vision Feeder source)
-```
+The current scheduled publishing path is **visual-pin focused**:
+
+- The CMO supplies a style, image prompt, title, description, tags, alt text, niche, and aspect ratio.
+- An image-generation service creates the image. ImgBB hosts it before it is sent to Pinterest.
+- If blog publishing is enabled and Firebase is configured, an inline blog workflow may research products, write an article, and publish it to Firestore.
+- Make.com receives the completed pin payload and performs the Pinterest-side posting.
+
+The Trend feature adds a separate way to collect visual references and steer the CMO:
+
+- Users add trends, keywords, and reference images from `/trends-ui`.
+- Trend images are queued in trend-specific Google Drive folders.
+- A separate background feeder analyzes those images and saves prompt material in dedicated Google Sheets tabs.
+- The CMO uses a trend only when it is switched on and has at least one usable analyzed prompt. Otherwise it uses the existing regular CMO path.
+
+The regular Vision Feeder remains separate. It processes images in the existing regular Drive input folder and adds styles to `Prompts_Master`.
+
+### Two Pinterest accounts
+
+| Internal account key | Account purpose | Main niche group |
+|---|---|---|
+| `account_1` | Home, decor, lifestyle | `home`, `kitchen`, `cozy`, `gadgets`, `organize` |
+| `account_2` | Tech, workspace, devices | `tech`, `budget`, `phone`, `smarthome`, `wfh` |
+
+The account key determines which account-specific strategy, webhook, board data, and trigger path are used.
 
 ---
 
-## 3. File-by-File Breakdown
+## 2. Architecture
 
-### Root Level
+```text
+Browser
+  ├── Main dashboard: /
+  └── Trend dashboard: /trends-ui
+          │
+          ▼
+FastAPI application (main.py, port 5000)
+  ├── Dashboard and operations endpoints
+  ├── Trend API (/trends/*)
+  └── Application lifespan
+       ├── APScheduler: 20 daily pin jobs + watchdog
+       ├── Regular Vision Feeder task
+       └── Trend Feeder task
 
-#### `main.py`
-**Role:** Application entrypoint. FastAPI server + scheduler bootstrap + dashboard API.
+Scheduled/manual publishing cycle
+  └── LangGraph Mastermind (mastermind/graph.py)
+       ├── Local board loader
+       ├── Analytics loader
+       ├── CMO strategy (regular style or Trend strategy)
+       ├── Board selector
+       └── Agent executor
+            └── agent.py publishing agent
+                 ├── Image generation → ImgBB
+                 ├── Optional inline blog → Firebase Firestore
+                 └── Make.com webhook → Pinterest
 
-**Key responsibilities:**
-- Defines `lifespan()` context manager:
-  - Calls `init_sheets()` to auto-create missing Google Sheet tabs
-  - Starts `AsyncIOScheduler` via `schedule_jobs()`
-  - Starts Vision Feeder background task loop
-- Registers all FastAPI routes (`/`, `/status`, `/trigger`, `/trigger/{account}`, `/products`, `/analytics`, `/pin-queue`, `/vision/*`)
-- Implements `mastermind_scheduled_job(account)` — the core periodic function
-- Implements `run_mastermind(account)` — runs the LangGraph mastermind pipeline
-- Implements `vision_feeder_loop()` — background asyncio loop for Vision Feeder
-- Serves `static/index.html` as the dashboard SPA
+Reference-image flows
+  ├── Regular Drive input folder → regular Vision Feeder
+  │       → Gemini Vision → Prompts_Master + Vision_Tracker
+  └── Trend Drive folders → Trend Feeder
+          → Gemini Vision → Trend_Prompts
 
-**Scheduler setup** (`schedule_jobs()`):
-- Starts with a 5-second initial delay, then randomized 60–72 min gaps
-- Interleaves account_1 and account_2 calls
-- Adds a pin watchdog job every 30 minutes
+Google Sheets
+  ├── Regular prompts, trackers, analytics, and approved-deal data
+  └── Trend_Settings and Trend_Prompts
+```
+
+### Main boundaries
+
+- **FastAPI** serves the dashboards and receives manual actions.
+- **APScheduler** starts publishing jobs in the running application process.
+- **LangGraph** coordinates the strategy and publishing steps.
+- **Google Sheets** stores prompts, rotation trackers, analytics, and trend data.
+- **Google Drive** stores regular and trend reference images.
+- **Local JSON** stores board configuration used by the Mastermind loader.
+- **Make.com** performs the final Pinterest posting integration.
+- **Firebase Firestore** stores optional blog posts.
+- **ImgBB** hosts generated images so the Pinterest webhook receives a public image URL.
 
 ---
 
-#### `agent.py`
-**Role:** LangGraph agent that actually executes pins. Called by `node_agent_executor`.
+## 3. Startup and scheduling
 
-**Tools registered:**
-1. `fill_missing_niches(account_key)` — Finds products in Sheets without a `niche` column value, asks the LLM to assign one, writes back to Sheets
-2. `publish_next_pin(account_key, strategy, visual_style, niche, visual_prompt, title, description, tags, alt_text, ratio)` — Full pin publishing pipeline
+### Application startup
 
-**`publish_next_pin()` internal flow:**
-1. Pull up to 2 pending products from Google Sheets (`get_pending_products`)
-2. Generate pin image via `generate_pin_image(visual_prompt, ratio)` → ImgBB URL
-3. If image fails → use product's own `image_url` as fallback
-4. Run inline blog pipeline: `_run_inline_blog()` → Firebase slug/URL
-5. Build Pinterest payload (image_url, title, description, tags, alt_text, blog_url, product affiliate links)
-6. Send to Make.com webhook (`post_to_pinterest()`)
-7. Mark product as POSTED in Google Sheets (`mark_as_posted()`)
-8. Return structured result dict
+The FastAPI lifespan in `main.py` performs these operations:
 
-**`_run_inline_blog()` — Inline Blog Pipeline (V4):**
-```
-node_blog_trigger → node_product_researcher → node_blog_writer → node_firebase_publisher
-```
-This runs inside `publish_next_pin()` as a 4-step sequential function call chain (not a separate LangGraph graph). The output is a Firebase blog URL included in the Pinterest pin.
+1. Attempts to initialize the regular Google Sheets tabs through `sheets.init_sheets()`.
+2. Attempts to initialize `Trend_Settings` and `Trend_Prompts`.
+3. Registers a midnight daily scheduling job and creates the next batch of pin jobs.
+4. Starts APScheduler and a watchdog that checks for missing pending pin jobs every 30 minutes.
+5. Starts the regular Vision Feeder loop.
+6. Starts the Trend Feeder loop. The Trend Feeder waits 60 seconds before its first pass.
 
----
+Sheet initialization errors are logged as warnings so the web application can still start. Features that need Sheets or Drive will then return errors or fall back according to their own code paths.
 
-#### `config.py`
-**Role:** Central config and secret loading.
+### Daily pin schedule
 
-**Environment variables:**
-| Variable | Purpose |
-|----------|---------|
-| `GEMINI_API_KEY` | Google Gemini 2.5 Flash (CMO + Vision Feeder) |
-| `GROQ_API_KEY` | Groq llama-3.3-70b (LLM fallback + aliexpress vision) |
-| `CEREBRAS_API_KEY` | Cerebras qwen-3-235b (LLM third-tier) |
-| `GOOGLE_CREDS_JSON` | Google Service Account JSON (Sheets + Drive access) |
-| `SPREADSHEET_ID` | Google Sheets spreadsheet ID |
-| `SHEET_NAME` | Products tab name (default: `Products`) |
-| `IMGBB_API_KEY` | ImgBB image hosting |
-| `MAKE_WEBHOOK_URL` | Make.com webhook → Pinterest Account 1 |
-| `MAKE_WEBHOOK_URL_2` | Make.com webhook → Pinterest Account 2 |
-| `FIREBASE_CREDS_JSON` | Firebase service account JSON |
-| `RAPIDAPI_KEY` | RapidAPI (Amazon product search) |
-| `AMAZON_STORE_ID` | Amazon Associates tag (affiliate links) |
-| `APIFY_API_KEY` | Apify scraper (Amazon fallback) |
-| `APIFY_ACTOR_ID` | Apify actor for Amazon scraping |
-| `GITHUB_TOKEN` | GitHub Models API (vision selection fallback in aliexpress.py) |
+`schedule_daily_pins()` registers 20 one-time jobs:
+
+- 10 jobs for `account_1` and 10 for `account_2`.
+- Account jobs are interleaved.
+- The first job is scheduled 5–15 minutes after scheduling.
+- The remaining jobs are spaced by randomized gaps of 60–72 minutes.
+- The schedule is rebuilt by a midnight cron job and can also be rebuilt by the watchdog if it finds no pending `pin_` jobs.
+- The scheduler is configured with the `America/New_York` timezone.
+
+Each job calls `mastermind_scheduled_job()` with an account-specific trigger string. The trigger lets the graph run only the requested account. Manual “run both” actions use a trigger that runs both accounts sequentially.
+
+> **Timing note:** Code comments mention an India-time posting window, but the current scheduler uses `America/New_York` and creates jobs relative to the time `schedule_daily_pins()` runs. There is no explicit India 3 PM–11 AM window enforced by the scheduling function.
+
+### Concurrency and persistence
+
+- `mastermind_scheduled_job()` skips a cycle if another Mastermind cycle is already marked as running.
+- APScheduler uses its in-process job store; scheduled jobs are not persisted to an external database.
+- A process restart therefore reconstructs a fresh schedule rather than restoring the previous job list.
+- The main application state and several counters are also in memory.
 
 ---
 
-### `mastermind/` — LangGraph Strategy Engine
+## 4. Mastermind graph and strategy selection
 
-#### `mastermind/graph.py`
-**Role:** Assembles the 3-node LangGraph `StateGraph`.
+The active graph is assembled in `mastermind/graph.py`:
 
-**Graph definition:**
+```text
+START
+  → firebase_loader
+  → data_intelligence
+  → cmo_mastermind
+  → board_selector
+  → agent_executor
+  → END
 ```
-START → node_data_intelligence → node_cmo_mastermind → node_agent_executor → END
-```
 
-**State type:** `MastermindState` (TypedDict defined in `state.py`)
+### Node 0 — Board loader
 
-**Entry point:** `run_mastermind(account_key: str)` — compiles and runs the graph synchronously.
+Despite the historical `node_firebase.py` filename, the current loader reads local board data through `tools.local_boards` for both accounts. It puts the board records into the graph state. It does not load Pinterest boards from Firestore in this path.
+
+### Node 1 — Data intelligence
+
+`mastermind/node_data.py` reads up to seven days of analytics independently for each account:
+
+- `account_1` → `Analytics_Log`
+- `account_2` → `Analytics_logs2`
+
+If a tab returns no rows or cannot be read, the node supplies a zero-valued “stagnant” analytics profile and marks the cycle as having used a fallback. The graph continues.
+
+### Node 2 — CMO strategy
+
+`mastermind/node_cmo.py` prepares a separate strategy for each account that is active for the current trigger.
+
+The CMO first tries the Trend path. If no usable Trend strategy is returned—or the Trend path raises an error—it continues through the regular style-rotation path.
+
+#### Regular style path
+
+1. Read and advance the account’s style rotation using `Style_Tracker`.
+2. Load the corresponding prompt rows from `Prompts_Master`.
+3. Rotate between prompt rows for the selected style using `Prompt_Tracker`.
+4. Use the prompt row’s label, description, image prompt, niche affinity, and tags as the creative source.
+5. Ask the configured CMO LLM to create the pin copy and expand the image prompt.
+6. Validate the response and attach the standard strategy fields.
+
+The normal strategy includes the pin type, visual style, niche, vibe, title, description, tags, alt text, visual prompt, and aspect ratio. The CMO also supplies board-matching keywords when available.
+
+#### Trend strategy path
+
+See [Trend strategy selection](#trend-strategy-selection) for the full decision process. The regular style and prompt trackers are not advanced when a Trend strategy is successfully returned.
+
+### Node 3 — Board selector
+
+`mastermind/node_board_selector.py` extracts matching signals from the strategy—board keywords, tags, niche, visual style, and description—and asks `tools.board_selector` to choose a board for the active account.
+
+The selected `board_id` and `board_name` are inserted into that account’s strategy. If matching fails, the strategy is retained with no selected board; the webhook integration can use its configured niche/default behavior.
+
+### Node 4 — Agent executor
+
+The executor checks the trigger and calls `run_agent()` for the required account or accounts. If both accounts are requested, they run one after the other. It records each account’s publish status and the most recent posted image URL in the graph state.
+
+### Graph state
+
+The graph state carries the cycle trigger, per-account analytics, board data, Trend keyword data, per-account CMO strategies, per-account publish results, fallback status, and optional blog fields. Nodes return updates to this shared state rather than creating independent scheduled pipelines.
 
 ---
 
-#### `mastermind/state.py`
-**Role:** Defines `MastermindState` TypedDict shared between all graph nodes.
+## 5. Pin creation and publishing
 
-**Fields:**
-```python
-{
-  "account_key": str,           # "account_1" or "account_2"
-  "analytics": list,            # Raw analytics rows from Sheets
-  "strategy": dict,             # CMO output: pin type, visual style, copy, prompts
-  "execution_result": dict,     # Agent tool call result
-  "error": str | None,          # Error message if any node fails
-}
+The scheduled CMO path produces visual pins (`VIRAL_PIN`). `agent.py` hosts the execution agent and the `publish_next_pin()` tool that performs the actual image and posting work.
+
+```text
+Account trigger + CMO strategy
+  → run_agent()
+  → publish_next_pin()
+  → generate_pin_image()
+  → upload generated bytes to ImgBB
+  → optional inline blog workflow
+  → Make.com webhook for the selected Pinterest account
+  → success/failure returned to the graph and dashboard state
 ```
+
+### Publishing steps
+
+1. **Read the CMO strategy.** The publishing tool uses the strategy passed into the agent: visual prompt, ratio, title, description, tags, alt text, niche, and selected board.
+2. **Generate the image.** `tools/image_creator.py` adds randomized camera angle, lighting, composition, and seasonal modifiers to the prompt, then tries the configured image providers in order.
+3. **Host the image.** Successful image bytes must be uploaded to ImgBB. If no image URL is produced, the pin is not posted.
+4. **Optionally write a blog.** If `BLOG_ENABLED` is not `false` and Firebase credentials are present, `agent.py` runs the inline blog chain before the pin is sent:
+
+   ```text
+   node_blog_trigger
+     → node_product_researcher
+     → node_blog_writer
+     → node_firebase_publisher
+   ```
+
+   The researcher can use product-search and affiliate-link integrations to support the article. A blog failure is caught; it does not stop the Pinterest pin. If the blog is skipped or fails, the pin is sent without a blog destination URL.
+
+5. **Send to Make.com.** The selected account determines which webhook is used. The payload includes the hosted image URL, copy, tags, alt text, niche, board information, and optional blog URL.
+6. **Return the result.** The agent reports success only when the webhook reports success. The current visual-pin publishing path does not mark a product row as posted.
+
+### Product-related code and the active scheduled path
+
+Product stock analysis and product fetching functions remain in `agent.py`, and product data can be managed through dashboard operations. They are not registered as tools in the active execution agent. Scheduled pins therefore do not currently require a pending product row or use an affiliate product image as an image-generation fallback. Product research is used inside the optional blog workflow, not as the scheduled pin’s primary publishing path.
 
 ---
 
-#### `mastermind/node_data.py` — Data Intelligence Node
-**Role:** Feeds the CMO with real performance data.
+## 6. Trend feature
 
-**What it does:**
-- Calls `get_analytics_rows(sheet_name, days=7)` for the relevant account tab (`Analytics_Log` for A1, `Analytics_logs2` for A2)
-- Returns last 7 days of Pinterest analytics: Date, Impressions, Clicks, Outbound Clicks, Saves
-- On failure: logs warning and passes empty analytics (stagnant fallback) so pipeline continues
+### User flow
 
----
+The mobile-friendly Trend dashboard is served at `/trends-ui`. It has three main areas:
 
-#### `mastermind/node_cmo.py` — CMO Mastermind Node
-**Role:** The creative brain. Decides what to post, what it should look like, and writes the copy.
+1. **Trends:** Add a trend, edit its keywords, and switch it on or off.
+2. **Queue images:** Choose `Regular` or a trend and upload reference images.
+3. **Feeder status:** See how many Trend prompts have been processed today and the daily limit.
 
-**Visual Styles (hardcoded in VISUAL_STYLES dict):**
+The dashboard uploads files in batches of up to five. The API accepts image files up to 15 MB each.
 
-*Account 1 — HomeDecor (11 styles):*
-- `boho_aesthetic_study` — Rattan, gallery wall, pothos, warm wood
-- `pastel_dreamy_kitchen` — Pink cabinets, cherry blossom, marble counters
-- `sunflower_yellow_porch` — Yellow blooms, wicker swing, citrus tones
-- `sage_copper_dining` — Forest green walls, copper cookware, botanical prints
-- `golden_balcony_garden` — Citrus trees, terracotta pots, warm afternoon light
-- `jungle_biophilic_bedroom` — Oversized tropical leaves, rattan headboard
-- `yellow_kawaii_bedroom` — Mustard yellow, plush toys, sunflower bedding
-- `warm_minimalist_bedside` — Beige linen, wooden lamp, soft shadows
-- `cottagecore_tech_den` — Antique books, dark academia, vintage monitor
-- `enchanted_cottage_garden` — Stone pathway, climbing roses, fairy lights
+### Add and manage a trend
 
-*Account 2 — Tech (5 styles):*
-- `kawaii_pastel_gaming` — Pastel pink gaming, LED lighting, plushies
-- `sage_clean_workspace` — Sage green wall, MacBook, succulent
-- `yellow_creator_flatlay` — Mustard headphones, yellow roses, MacBook overhead
-- `warm_minimalist_bedside` — Shared with A1
+When a user adds a trend:
 
-**Style Rotation Logic:**
-1. Loads current style index from `Style_Tracker` sheet tab (TTL-cached 5 min → local JSON fallback)
-2. Fetches prompt rows from `Prompts_Master` sheet (TTL-cached 30 min)
-3. Picks the next style by index (`style_idx % len(styles_for_account)`)
-4. Within each style, rotates through available prompt rows from `Prompts_Master` using `Prompt_Tracker`
-5. Saves updated indices back to `Style_Tracker` and `Prompt_Tracker`
+1. The API checks that the name is non-empty, is not `Regular`, and does not already exist (case-insensitive).
+2. The app tries to create a Drive folder under `TREND_DRIVE_PARENT_ID`. It prefers user OAuth; if that fails or is unavailable, it tries the service-account Drive client.
+3. The trend is written to `Trend_Settings` with `active = FALSE`, the folder ID (if created), and the comma-separated keywords.
+4. If folder creation fails, the trend can still be saved, but it will not accept Trend uploads until a Drive folder is available.
 
-**LLM Strategy Generation (3-tier fallback):**
-1. **Gemini 2.5 Flash** (primary) — `gemini-2.5-flash-preview-05-20` via `google.generativeai`
-2. **Cerebras qwen-3-235b** (secondary) — on Gemini failure/429
-3. **Hardcoded `HARDCODED_FALLBACK` dict** (emergency) — when both LLMs fail
+The switch is a manual on/off control. There are no start-date or end-date rules.
 
-**Output fields** (stored in `state["strategy"]`):
-```json
-{
-  "pin_type": "VIRAL_PIN",
-  "strategy": "...",
-  "visual_style": "boho_aesthetic_study",
-  "niche": "cozy",
-  "vibe": "...",
-  "title": "...",
-  "description": "...",
-  "tags": ["...", "...", "...", "...", "..."],
-  "alt_text": "...",
-  "visual_prompt": "..., 4K ultra HD, photorealistic, highly detailed, award-winning photography",
-  "ratio": "9:16"
-}
-```
+### Image upload
 
-**Validation:**
-- Enforces `pin_type == "VIRAL_PIN"`
-- Truncates `alt_text` to 200 chars (Pinterest API limit)
-- Appends `4K ultra HD, photorealistic, highly detailed, award-winning photography` if missing from `visual_prompt`
+The upload API is `POST /trends/upload`:
 
----
+- `target=Regular` sends images to the existing regular Vision Feeder input folder.
+- A trend target sends images to that trend’s Drive folder.
+- Upload uses Google user OAuth credentials. If those credentials are missing, the API returns an explicit configuration error.
+- The upload endpoint stores the file in Drive and returns the number queued and any per-file failures. It does not call Gemini Vision during upload.
 
-#### `mastermind/node_execute.py` — LEGACY (not in active graph)
-**Role (historical):** Was an earlier execution node. Replaced by `node_agent_executor` + `agent.py`.
-**Status:** Dead code. Not imported in `graph.py`.
+This keeps uploads quick and separates ingestion from analysis.
 
----
+### Trend Feeder
 
-#### `mastermind/node_copy.py` — LEGACY (not in active graph)
-**Role (historical):** "Fast Copywriters" node using Groq→Cerebras→local templates for pin copy.
-**Status:** Dead code. Not imported in `graph.py`. The CMO node now handles copy generation.
+`tools/trend_feeder.py` runs as an asyncio background task independent of scheduled posting:
 
----
+1. Wait 60 seconds after application startup.
+2. Read the trend settings and visit configured trend folders, with active trends ordered first.
+3. List image files from Drive using the service-account Drive client.
+4. Compare Drive file IDs against `Trend_Prompts.source_file` to avoid reprocessing already-saved images.
+5. Download each new image temporarily and reuse `tools.visions_ai.analyze_image()` to extract visual prompt data.
+6. Append a row to `Trend_Prompts`; the original Drive image is left in place.
+7. Wait 30 seconds after a successful image, or 60 seconds after a processing error.
+8. Run again after 30 seconds when it processed images, after five minutes when there was no work, or after one hour when the daily cap has been reached.
 
-#### `mastermind/node_blog_trigger.py` — Blog Trigger Node
-**Role:** Entry point of the inline blog pipeline. Decides whether to run a blog for this pin.
+The Trend Feeder limit is **25 analyzed images per calendar day**. The regular Vision Feeder has its own separate limit of **10 images per day**.
 
-**Logic:**
-- Checks if product data and CMO strategy are sufficient to generate a blog
-- Prepares the blog generation context (niche, style, product list, CMO copy)
-- Passes to `node_product_researcher`
+> **Toggle behavior:** The feeder processes configured trends even when their `active` switch is off; it only prioritizes active trends first. The switch controls whether the CMO may use a Trend for a pin, not whether its reference images are analyzed.
 
----
+### Trend strategy selection
 
-#### `mastermind/node_product_researcher.py` — Product Researcher Node
-**Role:** Finds Amazon products relevant to the pin's niche/style to embed in the blog.
+For each account, the Trend CMO:
 
-**Uses:**
-- `tools/aliexpress.py` → `search_products()` — hybrid RapidAPI→Apify Amazon search
-- `tools/admitad.py` → `enrich_with_affiliate_link()` — appends `?tag=AMAZON_STORE_ID`
-- Vision AI (`get_best_lifestyle_image()`) — Groq Vision→GitHub Models to select best product image
+1. Reads active trends from `Trend_Settings`.
+2. Looks for analyzed prompt rows for each active trend.
+3. Prefers prompt rows whose `account` matches the publishing account; if none match, it may use any prompt row for that trend.
+4. Rotates between active trends and their prompt rows.
+5. Builds the visual prompt from the analyzed row and selects keywords supplied by the user.
+6. Tries the CMO LLMs for the title, description, and copy. If both calls fail, it can build a basic strategy directly from the analyzed row.
+7. Enforces trend keyword usage in the title/description and adds CamelCase trend tags and board keywords.
 
-**Product quality filter:** rating ≥ 3.5 AND reviews ≥ 50
+If no active trend has a usable prompt row, `call_trend_cmo()` returns no strategy and the regular CMO style flow runs. If Trend handling raises an error, `node_cmo.py` logs a warning and also continues with the regular flow.
+
+### Trend data tables
+
+`sheets/trends.py` creates and manages two dedicated tabs. It does not write Trend prompts into the regular `Prompts_Master` tab.
+
+**`Trend_Settings`**
+
+| Column | Meaning |
+|---|---|
+| `trend` | User-facing trend name |
+| `active` | Manual `TRUE` / `FALSE` switch |
+| `drive_folder_id` | Drive folder receiving that trend’s reference images |
+| `keywords` | Comma-separated Pinterest keywords supplied by the user |
+
+**`Trend_Prompts`**
+
+| Column | Meaning |
+|---|---|
+| `trend` | Trend associated with the reference image |
+| `style_key` | Visual style identifier from image analysis |
+| `account` | Account classification from image analysis |
+| `label` | Human-readable visual label |
+| `description` | Extracted aesthetic description |
+| `t2i_base` | Base text-to-image prompt |
+| `niche_affinity` | Suggested niche(s) |
+| `source_file` | Google Drive file ID used for duplicate detection |
+| `added_on` | Date the prompt row was saved; used for the daily limit |
+
+The Trend prompt store has a 60-second in-process cache. Settings changes and new prompt writes invalidate the relevant cache.
 
 ---
 
-#### `mastermind/node_blog_writer.py` — Blog Writer Node
-**Role:** Generates full SEO HTML blog post.
+## 7. Regular Vision Feeder
 
-**LLM fallback chain (4 tiers):**
-1. Gemini 2.5 Flash
-2. Groq llama-3.3-70b
-3. Cerebras qwen-3-235b
-4. Local template from `mastermind/templates.py`
+The regular Vision Feeder is implemented in `tools/visions_ai.py` and runs alongside the Trend Feeder:
 
-**Output:** Full HTML blog post with:
-- SEO title and meta description
-- Pin image embedded
-- 3-5 product recommendations with affiliate links
-- Structured sections (intro, product reviews, buying guide, conclusion)
-- Schema markup ready for Firebase hosting
+```text
+Regular Drive input folder
+  → list image files
+  → skip/track processed files using Vision_Tracker
+  → download image
+  → Gemini Vision analysis
+  → append style data to Prompts_Master
+  → log to Vision_Tracker
+  → move image to the regular Processed folder
+```
+
+It processes up to **10 images per day**. It scans the existing configured input folder, updates in-memory dashboard statistics, and checks its stop flag between images. The loop sleeps between scans and sleeps for a day after the daily limit is reached.
+
+`/api/vision/stop` and `/api/vision/start` set the stop flag in `tools.visions_ai`. The Trend Feeder also checks that same flag before processing, so these controls pause/resume both image-analysis paths.
+
+The regular and Trend feeders share the image classification and Gemini analysis functions, but use separate Drive folders, storage tabs, tracking, and daily caps.
 
 ---
 
-#### `mastermind/node_firebase_publisher.py` — Firebase Publisher Node
-**Role:** Publishes the blog post to Firebase Firestore.
+## 8. Data storage
 
-**Uses:** `tools/firebase_publisher.py`
-**Output:** `{ "slug": "...", "blog_url": "/blog/...", "success": true }`
+### Google Sheets
 
----
+The regular Sheets layer is in `sheets/`; credentials come from `GOOGLE_CREDS_JSON`, and the spreadsheet is selected by `SPREADSHEET_ID`.
 
-#### `mastermind/templates.py`
-**Role:** Local copy fallback templates for all 10 niches (home, kitchen, cozy, gadgets, organize, tech, budget, phone, smarthome, wfh).
+| Tab | Purpose |
+|---|---|
+| `Approved Deals` | Product/approved-deal rows used by product operations |
+| `Prompts_Master` | Regular visual prompt library used by the regular CMO |
+| `Style_Tracker` | Per-account regular style rotation |
+| `Prompt_Tracker` | Prompt-row and Trend prompt rotation state |
+| `Vision_Tracker` | Audit/tracking data for the regular Vision Feeder |
+| `Analytics_Log` | Account 1 analytics input |
+| `Analytics_logs2` | Account 2 analytics input |
+| `Trend_Settings` | Trend names, switches, Drive folders, and user keywords |
+| `Trend_Prompts` | Analyzed Trend reference-image prompts |
 
-Used by `node_copy.py` (legacy) and as the last-resort copy fallback when all LLMs fail.
+Regular Sheets access uses the shared Sheets layer and service-account credentials. The Trend data layer also uses the service account, with its own client and short-lived caches.
 
----
+### Google Drive
 
-### `tools/` — External Integration Tools
+- The regular Vision Feeder reads from its configured regular input folder and moves processed images to its configured regular Processed folder.
+- The Trend Feeder reads trend-specific folders and leaves analyzed images there.
+- Trend image uploads use user OAuth. The feeder uses the service account to list and download images.
+- For the service account to read the Trend parent folder and its children, Drive sharing/permissions must be set up as described in `docs/trend-drive-setup.md`.
 
-#### `tools/image_creator.py` — T2I Image Pipeline
-**Role:** Generates a pin image from a text prompt. Triple-redundant engine.
+### Local board configuration
 
-**3-tier fallback:**
-```
-1. Cloudflare Workers AI  →  FLUX.1-schnell  (primary, free tier)
-2. HuggingFace Inference  →  FLUX.1-schnell  (secondary)
-3. Pollinations.ai        →  free public API  (last resort)
-```
+The Mastermind loader reads boards through `tools.local_boards` from the local board configuration. Board selection runs per account and adds the chosen board to the strategy before publishing.
 
-**Supported ratios:** `9:16` (1080×1920), `1:1` (1080×1080), `4:5` (1080×1350), `16:9` (1920×1080)
+### Firebase Firestore
 
-**Post-generation:**
-- All generated images are uploaded to **ImgBB** for permanent CDN hosting
-- Returns permanent ImgBB URL (not the T2I provider's temporary URL)
-- On upload failure: falls back to the raw T2I URL
+Firebase is used by the optional blog publishing path. Blog posts are written by `tools/firebase_publisher.py`; the publishing agent catches blog errors so they do not block the pin.
 
-**Key function:** `generate_pin_image(prompt: str, ratio: str = "9:16") -> str | None`
+### Process-local state and caches
 
----
-
-#### `tools/make_webhook.py` — Pinterest Poster
-**Role:** Sends pin data to Make.com automation, which posts to Pinterest.
-
-**Webhook routing:**
-- `account_1` → `MAKE_WEBHOOK_URL`
-- `account_2` → `MAKE_WEBHOOK_URL_2`
-
-**Payload:**
-```json
-{
-  "image_url": "https://i.ibb.co/...",
-  "title": "...",
-  "description": "...",
-  "tags": ["...", "..."],
-  "alt_text": "...",
-  "link": "https://yoursite.com/blog/slug",
-  "board": "home"
-}
-```
-
-**Key function:** `post_to_pinterest(account_key, image_url, title, description, tags, alt_text, link, board) -> dict`
+Scheduler jobs, the main dashboard state, feeder status, and several caches live in the current process. They are not a shared/distributed state store. Google Sheets and Drive hold the persistent prompt/reference data.
 
 ---
 
-#### `tools/visions_ai.py` — Vision Feeder Agent
-**Role:** Extracts "aesthetic DNA" from inspiration images and writes prompt rows to `Prompts_Master`.
+## 9. HTTP interface
 
-**Full flow:**
-1. Reads images from a Google Drive folder (via Google Drive API)
-2. Checks `Vision_Tracker` sheet to skip already-processed files
-3. Enforces daily limit of 10 images (configurable)
-4. For each new image: sends to **Gemini Vision** (`gemini-2.5-flash-preview-05-20`)
-5. Gemini extracts: `style_key`, `label`, `description`, `t2i_base`, `niche_affinity`, `tags`
-6. Appends extracted row to `Prompts_Master` Google Sheet
-7. Logs to `Vision_Tracker` sheet with status
+### Pages
 
-**Pause/resume:** Controlled via `VISION_FEEDER_PAUSED` flag (toggled by `/vision/pause` and `/vision/resume` endpoints)
+| Route | Purpose |
+|---|---|
+| `GET /` | Main application dashboard |
+| `GET /trends-ui` | Trend management and image upload dashboard |
 
-**Key function:** `run_vision_feeder(account: str) -> dict`
+### Trend API
 
----
+| Method and route | Purpose |
+|---|---|
+| `GET /trends` | List trends and prompt counts |
+| `GET /trends/feeder-status` | Return today’s analyzed prompt count and daily limit |
+| `POST /trends/add` | Add a trend and attempt Drive folder creation |
+| `POST /trends/toggle` | Set a trend’s manual active switch |
+| `POST /trends/keywords` | Update user-provided keywords |
+| `POST /trends/upload` | Upload regular or Trend reference images to Drive |
 
-#### `tools/llm.py` — Dual LLM Client
-**Role:** Shared LLM utility used by multiple nodes for text generation.
+### Main dashboard and operations API
 
-**Priority:**
-1. **Groq** `llama-3.3-70b-versatile` (fast, cheap)
-2. **Cerebras** `qwen-3-235b` (fallback on Groq failure/429)
+The main dashboard routes in `main.py` include:
 
-**Key function:** `ask_llm(prompt: str, system: str = None) -> str`
+- **Status and queues:** `/api/stats`, `/api/next-pins`, `/api/mastermind/stats`, `/api/products`, `/api/logs`, `/api/ping`
+- **Mastermind controls:** `/api/mastermind/run`, `/api/mastermind/run-account1`, `/api/mastermind/run-account2`, `/api/mastermind/stop`
+- **Account controls:** `/api/run-account1`, `/api/run-account2`, `/api/stop`
+- **Blog controls:** `/api/blog/stats`, `/api/blog/run-account1`, `/api/blog/run-account2`, `/api/blog/run-both`
+- **Vision controls:** `/api/vision/stats`, `/api/vision/stop`, `/api/vision/start`
+- **Pin controls:** `/api/force-pin/account1`, `/api/force-pin/account2`, `/api/force-pin/both`
+- **Product operations:** `/api/fetch-products`, `/api/fill-niches`
+- **AI chat:** `/api/chat`, `/api/cmo-chat`
+- **Boards:** `/api/boards/save`, `/api/boards/status`, `/api/firebase/upload-boards`, `/api/firebase/boards-status`
 
----
-
-#### `tools/firebase_publisher.py` — Firebase Firestore Client
-**Role:** Publishes blog posts to Firebase Firestore. Used by `node_firebase_publisher`.
-
-**Collection:** `blog_posts` (configurable)
-**Document ID:** URL slug derived from blog title
-**Fields stored:** `title`, `slug`, `html_content`, `meta_description`, `created_at`, `niche`, `account`, `image_url`, `tags`
-
-**Key function:** `publish_blog(blog_data: dict) -> dict`
+These controls call the application’s background jobs or data helpers. They do not create separate scheduled publishing pipelines.
 
 ---
 
-#### `tools/aliexpress.py` — Amazon Product Search
-**Role:** Searches Amazon for products matching a keyword/niche. Despite the filename, this module searches Amazon (not AliExpress) — the name is a historical artifact.
+## 10. Integrations and configuration
 
-**2-engine hybrid:**
-1. **RapidAPI** `realtime-amazon-data.p.rapidapi.com` (primary, real-time)
-2. **Apify** Amazon scraper actor (fallback — slower but more reliable)
+The application reads integration credentials from environment variables / Replit Secrets. Do not put secret values in this document or in source control.
 
-**Vision image selection (within aliexpress.py):**
-- `get_best_lifestyle_image(image_urls)` — uses Groq Vision→GitHub Models to pick the most lifestyle-appropriate product image from a gallery
+| Configuration | Used for |
+|---|---|
+| `GOOGLE_CREDS_JSON`, `SPREADSHEET_ID` | Google Sheets and service-account Drive access |
+| `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REFRESH_TOKEN` | Trend/regular image uploads and OAuth folder creation |
+| `TREND_DRIVE_PARENT_ID` | Parent folder where new Trend folders are created |
+| `GEMINI_API_KEY`, `GEMINI_API_KEY_2` | CMO/Vision and other Gemini-backed content paths |
+| `GROQ_API_KEY`, `CEREBRAS_API_KEY` | Text-generation fallbacks and agent calls |
+| `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | Primary image generation |
+| `HF_TOKEN` | Hugging Face image-generation fallback |
+| `IMGBB_API_KEY` | Hosting generated images |
+| `MAKE_WEBHOOK_URL`, `MAKE_WEBHOOK_URL_2` | Pinterest posting for the two accounts |
+| `FIREBASE_CREDS_JSON`, `BLOG_BASE_URL`, `BLOG_ENABLED` | Optional blog publishing |
+| `RAPIDAPI_KEY`, `RAPIDAPI_KEY2`, `APIFY_API_KEY`, `APIFY_ACTOR_ID` | Product research used by blog/product operations |
+| `TAVILY_API_KEY` | Present in configuration for search-related code; not required for the core scheduled pin path |
 
-**Quality filter:** rating ≥ 3.5, reviews ≥ 50
+### AI and publishing services
 
-**Key function:** `search_products(keyword, niche, max_results=5) -> list[dict]`
+| Service | Current role |
+|---|---|
+| Gemini | Regular/Trend strategy generation and image-reference analysis |
+| Groq | CMO and agent/text fallback paths |
+| Cerebras | Shared LLM fallback and auxiliary text/vision paths |
+| Cloudflare Workers AI | Primary text-to-image provider; current configured model is `@cf/black-forest-labs/flux-2-klein-4b` |
+| Hugging Face | Secondary image-generation provider |
+| Pollinations | Last-resort image-generation provider |
+| ImgBB | Public hosting for generated pin images |
+| Make.com | Receives account-specific posting payloads and handles Pinterest posting |
+| Google Sheets / Drive | Prompt, analytics, tracker, and image-reference storage |
+| Firebase Firestore | Optional blog-post storage |
+| RapidAPI / Apify | Product discovery for blog/product operations |
 
----
-
-#### `tools/admitad.py` — Affiliate Link Generator
-**Role:** Appends Amazon Associates tag to product URLs.
-
-**Key function:** `enrich_with_affiliate_link(product: dict) -> dict`
-**Config:** `AMAZON_STORE_ID` env var
-
----
-
-#### `tools/google_drive.py` — Backward Compatibility Layer
-**Role:** Re-exports all `sheets/` functions under the old `tools/google_drive` import path. Exists to avoid breaking legacy import statements.
-
----
-
-### `sheets/` — Google Sheets Data Layer
-
-The entire Google Sheets interaction is encapsulated in this package.
-
-#### `sheets/base.py`
-- Singleton `gspread.Client` (authenticated once, reused)
-- Service account auth from `GOOGLE_CREDS_JSON`
-- `_throttled_write()` enforces 1.2s minimum gap between write calls (rate-limit protection)
-- `reset_client()` forces re-auth on next call
-
-#### `sheets/products.py`
-CRUD for the **Products** tab:
-- `get_pending_products(limit, allowed_niches)` — Filters by `Status == "PENDING"`
-- `mark_as_posted(product_name)` — Sets `Status = "POSTED"`
-- `save_products(products)` — Batch append rows
-- `count_pending()`, `get_all_products()`, `get_products_without_niche()`, `update_niche()`
-
-#### `sheets/prompts_master.py`
-- **Prompts_Master** tab: style prompts database
-- Columns: `style_key`, `account`, `label`, `description`, `t2i_base`, `niche_affinity`, `tags`
-- **30-minute TTL in-memory cache** — new Vision Feeder rows auto-picked up within 30 min
-- `append_prompt_row(data)` — used by Vision Feeder to add new aesthetic DNA rows
-
-#### `sheets/style_tracker.py`
-- **Style_Tracker** tab: per-account style rotation indices
-- Columns: `account_1`, `account_2` (values = current style index integers)
-- **5-minute TTL in-memory cache** → local JSON fallback (`data/style_tracker_local.json`)
-- Always writes local JSON first, then Sheets (best-effort)
-
-#### `sheets/prompt_tracker.py` *(not read, inferred from __init__.py)*
-- **Prompt_Tracker** tab: per-style prompt rotation indices
-- Columns: `tracker_key`, `last_idx`
-- Tracks which prompt row within each style was last used
-
-#### `sheets/vision_tracker.py` *(not read, inferred from __init__.py)*
-- **Vision_Tracker** tab: audit log of Vision Feeder processed images
-- Columns: `date`, `file_name`, `style_key`, `account`, `status`, `timestamp`
-- `get_today_count_from_sheet()` — enforces daily image limit
-
-#### `sheets/analytics.py`
-- Reads **Analytics_Log** (A1) and **Analytics_logs2** (A2) tabs
-- Multi-format date parsing: `%Y-%m-%d`, `%m/%d/%Y`, `%d/%m/%Y`, `%d-%m-%Y`, `%B %d, %Y`
-- Returns last N days of rows; falls back to last N rows if date parsing fails
-
-#### `sheets/setup.py`
-- `init_sheets()` — called at startup; auto-creates any missing tabs with correct headers
-- Idempotent: won't touch tabs that already exist and have headers
-- Required tabs: `Prompts_Master`, `Style_Tracker`, `Prompt_Tracker`, `Vision_Tracker`, `Analytics_Log`, `Analytics_logs2`
+The image generator supports `9:16` and `1:1` output dimensions. It validates generated image bytes, tries providers in order, and returns an ImgBB URL only after successful hosting.
 
 ---
 
-### `pipeline/` — Legacy Full Pipeline Orchestrator
+## 11. Failures and fallbacks
 
-#### `pipeline/orchestrator.py`
-**Status:** Fully implemented but **not connected to the scheduler**. This is an alternate, more verbose 9-step pipeline for future use or manual invocation.
-
-**Steps:**
-```
-1. Keyword Agent        → get_todays_keywords()
-2. Pin Content Agent    → generate_pin_content()
-3. Prompt Selector      → select_best_prompt()
-4. Image Creator        → generate_pin_image()
-5. Product Extractor    → extract_products_from_image()
-6. Amazon Fetcher       → fetch_amazon_products()
-7. Blog Agent           → generate_blog_post()
-8. Firebase Publisher   → publish_blog_to_firebase()
-9. Pinterest Publisher  → publish_pin()
-```
-
-This pipeline is currently a separate codebase within the repo and is **not invoked by any scheduler or endpoint** in the active system.
-
----
-
-### `utils/`
-
-#### `utils/image_processor.py`
-**Role:** PIL-based image overlay utility (currently unused in main flow).
-
-**Functionality:** Downloads an image URL, resizes to 1000×1500 (Pinterest optimal), adds a dark gradient overlay at the bottom, renders title text and CTA text. Returns JPEG bytes.
-
-**Status:** Utility function available but not called in the active pin publishing flow. Originally intended for product image overlays.
+| Area | Current behavior |
+|---|---|
+| Sheets initialization at startup | Logs a warning; the application can still start, but Sheets-backed features may fail |
+| Analytics missing/unavailable | Supplies a zero-valued stagnant profile and continues the graph |
+| Trend unavailable or errors | Logs a warning and falls back to the regular CMO strategy |
+| Active Trend has no analyzed prompt | Skips Trend strategy and uses the regular CMO strategy |
+| Trend CMO LLM calls fail | Builds a basic strategy from the analyzed Trend row; if Trend handling itself fails, regular flow is used |
+| Regular CMO Gemini fails | Tries the configured Groq CMO fallback |
+| Regular CMO fallback fails | Builds from prompt-sheet style data where possible; hardcoded account strategy is the outer emergency fallback |
+| Board selection fails | Keeps the strategy and omits the selected board; downstream configured fallback behavior may apply |
+| Cloudflare image generation fails | Tries Hugging Face, then Pollinations |
+| All image providers fail | Returns no image URL; the pin is not posted |
+| ImgBB upload fails | No hosted URL is returned; the pin is not posted |
+| Blog generation/publishing fails | Logs the failure and continues to attempt the Pinterest post without a blog URL |
+| Make.com webhook fails | The account’s pin operation returns a failure result |
+| Trend image processing fails | Logs the error, waits, and may retry in a later pass; source-file deduplication is recorded when a prompt row is successfully saved |
 
 ---
 
-### `static/index.html`
-**Role:** Single-page dashboard UI served at `/`.
+## 12. Security and operational notes
 
-**Shows:**
-- Scheduler status (running/stopped, next job time)
-- Recent pin queue (last N pins posted per account)
-- Analytics summary
-- Vision Feeder status and controls (pause/resume/trigger)
-- Manual trigger buttons per account
-
----
-
-## 4. Complete Pipeline Flow
-
-### Active Production Flow (scheduler-triggered)
-
-```
-APScheduler tick (every 60–72 min, alternating A1/A2)
-│
-├─ mastermind_scheduled_job(account_key)
-│   └─ run_mastermind(account_key)
-│       └─ LangGraph: MASTERMIND GRAPH
-│
-│   [NODE 1] node_data_intelligence
-│   ├─ get_analytics_rows(sheet_name, days=7)
-│   ├─ Returns: state["analytics"] = [{"Date":…, "Impressions":…, …}, …]
-│   └─ Failure: state["analytics"] = [] (pipeline continues)
-│
-│   [NODE 2] node_cmo_mastermind
-│   ├─ load_style_tracker()          → current style index (Sheets → local JSON)
-│   ├─ get_prompts_master()          → all prompt rows (30-min cache)
-│   ├─ pick next style by rotation index
-│   ├─ _get_prompt_for_style()       → pick next prompt row for that style
-│   ├─ _build_forced_style_prompt()  → build LLM prompt with art direction context
-│   ├─ LLM call (3-tier):
-│   │   ├─ Gemini 2.5 Flash          (primary)
-│   │   ├─ Cerebras qwen-3-235b      (fallback on 429/error)
-│   │   └─ HARDCODED_FALLBACK dict   (emergency)
-│   ├─ _extract_json()               → parse LLM response
-│   ├─ _validate()                   → enforce VIRAL_PIN, alt_text ≤ 200 chars
-│   ├─ save_style_tracker()          → advance style index
-│   ├─ save_prompt_tracker()         → advance prompt index
-│   └─ Returns: state["strategy"] = {pin_type, visual_style, niche, visual_prompt,
-│                                     title, description, tags, alt_text, ratio}
-│
-│   [NODE 3] node_agent_executor
-│   └─ run_agent(account_key, strategy)
-│       └─ LangGraph: AGENT GRAPH
-│           ├─ Tool call: fill_missing_niches(account_key)
-│           │   ├─ get_products_without_niche()  → Sheets
-│           │   ├─ LLM assigns niche to each
-│           │   └─ update_niche()                → Sheets
-│           │
-│           └─ Tool call: publish_next_pin(…all CMO strategy fields…)
-│               │
-│               ├─ [STEP 1] get_pending_products(limit=2, allowed_niches=[niche])
-│               │   └─ Google Sheets → Products tab, Status==PENDING
-│               │
-│               ├─ [STEP 2] generate_pin_image(visual_prompt, ratio)
-│               │   ├─ Cloudflare Workers AI (FLUX.1-schnell)  → bytes
-│               │   ├─ HuggingFace (FLUX.1-schnell)            → bytes (fallback)
-│               │   └─ Pollinations.ai                         → bytes (last resort)
-│               │       └─ _upload_to_imgbb(bytes) → permanent ImgBB URL
-│               │
-│               ├─ [STEP 3, optional] product image fallback
-│               │   └─ If T2I fails AND product has image_url → use product image
-│               │
-│               ├─ [STEP 4] _run_inline_blog(account, strategy, product, image_url)
-│               │   ├─ node_blog_trigger()
-│               │   │   └─ Decide: run blog? Prepare context.
-│               │   ├─ node_product_researcher()
-│               │   │   ├─ search_products(keyword, niche)
-│               │   │   │   ├─ RapidAPI Amazon search   (primary)
-│               │   │   │   └─ Apify Amazon scrape      (fallback)
-│               │   │   ├─ get_best_lifestyle_image()
-│               │   │   │   ├─ Groq Vision              (primary)
-│               │   │   │   └─ GitHub Models            (fallback)
-│               │   │   └─ enrich_with_affiliate_link() → ?tag=AMAZON_STORE_ID
-│               │   ├─ node_blog_writer()
-│               │   │   ├─ Gemini 2.5 Flash             (primary)
-│               │   │   ├─ Groq llama-3.3-70b           (fallback)
-│               │   │   ├─ Cerebras qwen-3-235b         (fallback)
-│               │   │   └─ Local template               (last resort)
-│               │   └─ node_firebase_publisher()
-│               │       └─ Firebase Firestore → blog_posts/{slug}
-│               │           └─ Returns: blog_url = "/blog/{slug}"
-│               │
-│               ├─ [STEP 5] post_to_pinterest(account_key, payload)
-│               │   └─ Make.com webhook (MAKE_WEBHOOK_URL or MAKE_WEBHOOK_URL_2)
-│               │       └─ Make.com → Pinterest API → Pin posted
-│               │
-│               └─ [STEP 6] mark_as_posted(product_name)
-│                   └─ Google Sheets: Status → "POSTED"
-│
-└─ Pin published. Next job scheduled in 60–72 min.
-```
+- The current FastAPI application has no authentication middleware protecting the dashboard or API routes. The app also enables permissive CORS (`allow_origins=["*"]`). Treat the dashboard and its administrative endpoints as public if the app is reachable publicly; they should be protected before public use.
+- Google OAuth upload credentials are separate from service-account read credentials. Configure both roles and Drive permissions using `docs/trend-drive-setup.md`.
+- Google OAuth consent/testing configuration can affect refresh-token lifetime. Reauthorize or publish the consent screen as required by the Google project setup.
+- The Trend feeder processes inactive trends too; turning a trend off prevents CMO selection but does not stop its image analysis, which still counts toward the daily Trend limit.
+- The regular Vision Feeder and Trend Feeder have independent daily limits and run as separate background tasks.
+- APScheduler and application state are process-local. A restart interrupts current in-memory jobs and counters; startup constructs a new daily schedule.
+- Analytics are read from Sheets. The current Mastermind path does not itself fetch analytics directly from Pinterest.
+- Secrets are expected to be configured outside the repository. Never add API keys, OAuth refresh tokens, or service-account JSON values to this document.
 
 ---
 
-## 5. Data Flow
+## 13. Code map and inactive paths
 
-### Google Sheets — Central Database
+### Active runtime files
 
-```
-Spreadsheet ID: env[SPREADSHEET_ID]
+| File or directory | Responsibility |
+|---|---|
+| `main.py` | FastAPI app, dashboard endpoints, startup/shutdown, APScheduler, both feeder loops |
+| `agent.py` | Execution agent, `publish_next_pin()`, optional inline blog trigger |
+| `mastermind/graph.py` | Mastermind LangGraph wiring and graph entry point |
+| `mastermind/node_firebase.py` | Current local-board loading node (historical filename) |
+| `mastermind/node_data.py` | Per-account analytics loading |
+| `mastermind/node_cmo.py` | Regular CMO strategy and Trend hook |
+| `mastermind/trend_cmo.py` | Trend strategy selection and trend-keyword enforcement |
+| `mastermind/node_board_selector.py` | Per-account board matching |
+| `mastermind/node_blog_*.py` | Optional inline blog pipeline |
+| `trend_routes.py` | Trend dashboard API |
+| `static/trends.html` | Trend management UI |
+| `sheets/` | Regular and Trend Google Sheets data access |
+| `tools/trend_feeder.py` | Trend-folder background image analysis |
+| `tools/visions_ai.py` | Regular Vision Feeder and shared Gemini image-analysis functions |
+| `tools/drive_upload.py` | Google user-OAuth Drive uploads and folder creation |
+| `tools/image_creator.py` | Image generation, fallback order, and ImgBB hosting |
+| `tools/local_boards.py`, `tools/board_selector.py` | Board configuration and board selection |
+| `tools/make_webhook.py` | Make.com Pinterest-posting request |
 
-Tab: Products
-  Columns: product_name | product_id | sale_price | rating | orders |
-           affiliate_link | image_url | keyword | niche | Status
-  Flow: Amazon search → save_products() → PENDING → publish_next_pin() → POSTED
+### Implemented but not part of the active scheduled path
 
-Tab: Prompts_Master
-  Columns: style_key | account | label | description | t2i_base | niche_affinity | tags
-  Flow: Vision Feeder → append_prompt_row() | CMO → get_prompts_master() (30-min cache)
-
-Tab: Style_Tracker
-  Columns: account_1 | account_2
-  Values:  current rotation index per account
-  Flow: CMO reads → increments → saves (Sheets + local JSON)
-
-Tab: Prompt_Tracker
-  Columns: tracker_key | last_idx
-  Flow: CMO reads → increments → saves
-
-Tab: Vision_Tracker
-  Columns: date | file_name | style_key | account | status | timestamp
-  Flow: Vision Feeder → log_to_vision_tracker() after each image processed
-
-Tab: Analytics_Log       (Account 1 Pinterest analytics)
-Tab: Analytics_logs2     (Account 2 Pinterest analytics)
-  Columns: Date | Impressions | Clicks | Outbound Clicks | Saves
-  Flow: Manual upload from Pinterest → Data Intelligence node reads
-```
-
-### Firebase Firestore — Blog Backend
-
-```
-Collection: blog_posts
-Document:   {slug}
-Fields:     title, slug, html_content, meta_description, created_at,
-            niche, account, image_url, tags
-
-Flow: node_blog_writer → HTML → node_firebase_publisher → Firestore
-      Pinterest pin link_url = "https://yoursite.com/blog/{slug}"
-```
-
-### ImgBB — Image CDN
-
-```
-Flow: T2I engine → raw bytes → ImgBB API → permanent URL (i.ibb.co/...)
-      Pinterest payload image_url = ImgBB permanent URL
-```
-
-### In-Memory Caches
-
-| Cache | TTL | Fallback |
-|-------|-----|---------|
-| `Prompts_Master` rows | 30 min | Raises (caller handles) |
-| `Style_Tracker` values | 5 min | Local `data/style_tracker_local.json` |
-| gspread client singleton | lifetime | `reset_client()` on auth error |
-| Products worksheet | lifetime | Re-opens on next call |
+- `pipeline/orchestrator.py` and its pipeline agents are an alternate orchestration path; the active scheduler uses the Mastermind graph.
+- `mastermind/node_copy.py` and `mastermind/node_execute.py` are legacy modules not wired into the current Mastermind graph.
+- `analyze_niche_stock()` and `fetch_aliexpress_products()` exist in `agent.py` but are not registered in the active agent tool list.
+- Product sourcing and board-management endpoints may be used manually, but the scheduled visual-pin path does not run the legacy product-first pipeline.
 
 ---
 
-## 6. API & External Services
-
-### LLMs
-
-| Service | Model | Use Case | Priority |
-|---------|-------|----------|---------|
-| Google Gemini | `gemini-2.5-flash-preview-05-20` | CMO strategy, blog writing, Vision Feeder | 1st |
-| Groq | `llama-3.3-70b-versatile` | LLM fallback, copywriting, vision selection | 2nd |
-| Cerebras | `qwen-3-235b` | 3rd-tier LLM fallback | 3rd |
-| GitHub Models | `Llama-3.2-11B-Vision-Instruct` | Product image selection fallback | last |
-
-### Image Generation
-
-| Service | Model | Endpoint | Priority |
-|---------|-------|----------|---------|
-| Cloudflare Workers AI | FLUX.1-schnell | `https://api.cloudflare.com/client/v4/accounts/{id}/ai/run/@cf/black-forest-labs/flux-1-schnell` | 1st |
-| HuggingFace | FLUX.1-schnell | `https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell` | 2nd |
-| Pollinations.ai | — | `https://image.pollinations.ai/prompt/{encoded_prompt}` | 3rd |
-
-### Product Data
-
-| Service | Endpoint | Priority |
-|---------|----------|---------|
-| RapidAPI Amazon | `realtime-amazon-data.p.rapidapi.com` | 1st |
-| Apify Amazon Scraper | `api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items` | 2nd |
-
-### Pinterest Posting
-
-| Service | Method | Details |
-|---------|--------|---------|
-| Make.com | HTTP POST webhook | Separate webhook URLs per account. Make.com handles Pinterest API auth. |
-
-### Storage & Hosting
-
-| Service | Use | Auth |
-|---------|-----|------|
-| Google Sheets | Products DB, trackers, analytics, prompts | Service account JSON |
-| Google Drive | Vision Feeder source images | Same service account |
-| Firebase Firestore | Blog post storage | Firebase service account JSON |
-| ImgBB | Permanent image CDN | API key |
-
----
-
-## 7. Error Handling & Fallbacks
-
-### LLM Fallback Chain (CMO Node)
-
-```
-Gemini 2.5 Flash
-  ↓ (error or 429)
-Cerebras qwen-3-235b
-  ↓ (error)
-_build_from_style_data() — builds valid strategy dict from VISUAL_STYLES hardcoded data
-  ↓ (style not even in VISUAL_STYLES)
-HARDCODED_FALLBACK[account_key] — guaranteed working pin per account
-```
-
-### Image Generation Fallback Chain
-
-```
-Cloudflare Workers AI (FLUX.1-schnell)
-  ↓ (fail/timeout)
-HuggingFace (FLUX.1-schnell)
-  ↓ (fail/timeout)
-Pollinations.ai (free, no auth)
-  ↓ (all fail)
-None — agent falls back to product's own image_url from Sheets
-```
-
-### ImgBB Upload Fallback
-
-```
-Upload to ImgBB
-  ↓ (fail)
-Return raw T2I provider URL (temporary, may expire)
-```
-
-### Google Sheets Fallbacks
-
-```
-Style_Tracker:
-  Sheets read → in-memory TTL cache → local data/style_tracker_local.json → {}
-
-Prompts_Master:
-  Sheets read (cached 30 min) → Raises on failure
-  CMO handles: falls back to VISUAL_STYLES hardcoded descriptions
-
-Products:
-  If 0 pending products → runs VIRAL_PIN mode (aesthetic-only pin, no product)
-```
-
-### Blog Pipeline Fallbacks
-
-```
-Blog Writer LLMs:
-  Gemini → Groq → Cerebras → local template (mastermind/templates.py)
-
-Firebase Publish:
-  On failure → pin is still posted with a fallback blog_url slug
-  Pipeline does NOT abort on Firebase failure
-```
-
-### Amazon Product Search Fallbacks
-
-```
-RapidAPI
-  ↓ (fail or returns non-list)
-Apify
-  ↓ (fail or 400)
-[] — no products; blog continues without product recommendations
-```
-
-### Analytics Node Fallback
-
-```
-Sheets read
-  ↓ (fail)
-state["analytics"] = [] — CMO still runs; uses "no data" context in prompt
-```
-
-### Rate Limiting
-
-- **Sheets writes:** 1.2-second minimum gap enforced by `_throttled_write()` in `sheets/base.py`
-- **Amazon API:** 2s delay between detail calls, 5s spacing between vision calls (in `aliexpress.py`)
-- **Gemini 429:** Triggers immediate fallback to Cerebras (no retry loop — avoids blocking the scheduler)
-
----
-
-## 8. Scheduler Logic
-
-### Setup (`main.py → schedule_jobs()`)
-
-```python
-AsyncIOScheduler()  # APScheduler, shares FastAPI's asyncio event loop
-
-Initial delay: 5 seconds after startup
-Then: randomized 60–72 minute gaps between jobs
-
-Account interleaving: A1, A2, A1, A2, ... (alternates every tick)
-
-Watchdog: every 30 minutes → checks if last pin was posted; reschedules if stalled
-```
-
-### Job Sequence (per tick)
-
-```
-1. mastermind_scheduled_job(account_key) called
-2. Logs: "🎯 Mastermind job START: account_1"
-3. run_mastermind(account_key) → LangGraph pipeline (see Section 4)
-4. Logs result (success/failure, pin title, style used)
-5. Schedules NEXT tick: now + random(60, 72) minutes for the OTHER account
-```
-
-### Pin Watchdog (every 30 min)
-
-- Checks `last_posted_time` global variable
-- If time since last successful post exceeds threshold → logs alert
-- Designed to detect scheduler stalls (e.g., if a long-running LLM call blocks the event loop)
-
-### Manual Trigger
-
-- `POST /trigger` → `run_mastermind("account_1")`
-- `POST /trigger/{account}` → `run_mastermind(account)` where account is `account_1` or `account_2`
-- Runs immediately in the background (FastAPI BackgroundTask)
-
----
-
-## 9. Vision Feeder System
-
-**Purpose:** Continuously learn new aesthetic styles from inspiration images uploaded to Google Drive. Automatically expands the `Prompts_Master` sheet with new T2I prompts.
-
-### Flow
-
-```
-Google Drive folder
-  │  (images uploaded manually by user)
-  ▼
-vision_feeder_loop()  (background asyncio task, main.py)
-  │  Runs continuously with 1-hour sleep between iterations
-  │
-  ▼
-run_vision_feeder(account)  (tools/visions_ai.py)
-  │
-  ├─ 1. List files in Google Drive folder
-  ├─ 2. get_all_processed_filenames()  → Vision_Tracker sheet (skip already done)
-  ├─ 3. get_today_count_from_sheet()   → enforce daily limit (default: 10 images)
-  │
-  └─ For each new image (up to daily limit):
-      ├─ Download image bytes from Drive
-      ├─ Send to Gemini Vision with art-direction extraction prompt
-      ├─ Parse response: {style_key, label, description, t2i_base, niche_affinity, tags}
-      ├─ append_prompt_row(data)  → write to Prompts_Master (invalidates 30-min cache)
-      └─ log_to_vision_tracker()  → write to Vision_Tracker
-```
-
-### Controls (via API)
-
-| Endpoint | Action |
-|----------|--------|
-| `POST /vision/pause` | Sets `VISION_FEEDER_PAUSED = True` |
-| `POST /vision/resume` | Sets `VISION_FEEDER_PAUSED = False` |
-| `POST /vision/trigger` | Force-runs one Vision Feeder cycle immediately |
-| `GET /vision/status` | Returns paused state, today's count, recent processed files |
-
----
-
-## 10. Known Issues & TODOs
-
-### Active Issues
-
-| # | Severity | Description |
-|---|----------|-------------|
-| 1 | High | `tools/aliexpress.py` searches **Amazon** (not AliExpress). Filename is a misleading historical artifact. |
-| 2 | Medium | `pipeline/orchestrator.py` and its sub-agents (`pipeline/keyword_agent.py`, etc.) are implemented but **not connected** to any scheduler or endpoint in `main.py`. They are effectively dead code parallel to the active mastermind flow. |
-| 3 | Medium | `mastermind/node_execute.py` and `mastermind/node_copy.py` are **not imported** in `graph.py` — dead code from an older architecture version. |
-| 4 | Medium | `utils/image_processor.py` (PIL overlay) is implemented but **not called** anywhere in the active flow. |
-| 5 | Low | `data/style_tracker_local.json` and `data/prompt_tracker.json` — the `data/` directory must exist before first write; if it doesn't, `os.makedirs` handles it, but this is not guaranteed to work in all deployment environments. |
-| 6 | Low | Rate limiting on Gemini (429) is handled by immediately falling back to Cerebras — there is no exponential backoff or retry queue. Under heavy load, Gemini quota exhaustion permanently shifts all traffic to Cerebras until the next restart. |
-| 7 | Low | The Vision Feeder's daily limit is stored per-calendar-day in `Vision_Tracker` sheet. If the scheduler timezone differs from the user's local timezone, the "today" boundary may not align with expectations. |
-
-### TODOs / Future Improvements
-
-| # | Priority | Description |
-|---|----------|-------------|
-| 1 | High | **Connect `pipeline/orchestrator.py`** to the scheduler or provide a dashboard endpoint to run it — it offers a more granular, keyword-driven pipeline. |
-| 2 | High | **Add real Pinterest analytics auto-import** — currently `Analytics_Log` must be manually updated by copying from Pinterest analytics. Automating this via Pinterest API or Zapier would close the feedback loop fully. |
-| 3 | Medium | **Remove dead code:** `node_execute.py`, `node_copy.py`, `utils/image_processor.py`, rename `tools/aliexpress.py` → `tools/amazon.py`. |
-| 4 | Medium | **Persistent job state:** APScheduler uses an in-memory job store. On restart, the next-tick schedule resets. Migrate to SQLAlchemy job store for persistence across restarts. |
-| 5 | Medium | **Pinterest board routing:** Currently the Make.com webhook receives a `board` field (niche name), but the actual board routing logic lives inside Make.com. Moving board selection into `tools/make_webhook.py` would make it testable and auditable. |
-| 6 | Medium | **Blog frontend:** Firebase Firestore stores blog HTML but there is no frontend to serve it. A static Next.js/Astro site reading from Firestore would complete the SEO funnel. |
-| 7 | Low | **Webhook failure alerting:** If Make.com returns a non-200, it is logged but not alerted. Adding a Slack/email alert on Pinterest post failure would improve operational visibility. |
-| 8 | Low | **Product inventory auto-refill:** When `count_pending()` drops below a threshold, the system should trigger `search_products()` automatically and backfill the Products sheet. Currently this requires manual product sourcing. |
-| 9 | Low | **Vision Feeder style deduplication:** If Gemini Vision extracts a `style_key` that already exists in `Prompts_Master`, it adds a duplicate row. A dedup check before `append_prompt_row()` would keep the sheet clean. |
-
----
-
-*End of System Design Document*
+*End of current system design.*
