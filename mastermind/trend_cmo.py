@@ -23,6 +23,9 @@ def _ensure_board_exists(trend_name: str, keywords: list) -> str:
     prompt = f"""You are a Pinterest SEO expert. 
     Create a viral Pinterest board name and description for the trend: "{trend_name}".
     Keywords to include: {', '.join(keywords)}
+    STRICT RULES:
+    - board_name MUST be UNDER 45 characters.
+    - board_description MUST be UNDER 300 characters.
     Output ONLY a JSON object:
     {{"board_name": "...", "board_description": "..."}}"""
     
@@ -36,13 +39,17 @@ def _ensure_board_exists(trend_name: str, keywords: list) -> str:
         board_name = f"{trend_name.title()} Aesthetic"
         board_desc = f"Discover the best {trend_name} aesthetics, ideas, and inspiration."
 
+    # 🚨 FORCE CHARACTER LIMITS (Make.com Error 400 Prevention) 🚨
+    board_name = board_name[:45].strip()
+    board_desc = board_desc[:300].strip()
+
     # 2. Make.com Webhook ko data bhejo
     payload = {
         "trend_id": trend_name,
         "board_name": board_name,
         "board_description": board_desc
     }
-    logger.info(f"🚀 Creating new Pinterest board for '{trend_name}' via Make.com...")
+    logger.info(f"🚀 Creating new Pinterest board for '{trend_name}' via Make.com... (Name length: {len(board_name)})")
     
     try:
         res = requests.post(MAKE_BOARD_WEBHOOK_URL, json=payload, timeout=20)
@@ -54,6 +61,10 @@ def _ensure_board_exists(trend_name: str, keywords: list) -> str:
                 # 3. Sheet me update kar do
                 update_trend_board_id(trend_name, new_board_id)
                 return new_board_id
+        elif res.status_code == 202:
+            logger.error("❌ Make.com returned 202 Accepted. Your Scenario might be OFF. Please turn it ON.")
+        else:
+            logger.error(f"❌ Make.com Error: Status {res.status_code} - {res.text}")
     except Exception as e:
         logger.error(f"❌ Failed to create board via Make.com: {e}")
     
