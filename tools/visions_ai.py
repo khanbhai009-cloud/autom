@@ -104,7 +104,7 @@ def analyze_image(image_path: str) -> dict:
             logging.info(f"🔑 Using {label} Gemini API key...")
             myfile = active_client.files.upload(file=image_path)
             response = active_client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-3.8-flash',
                 contents=[prompt, myfile],
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
