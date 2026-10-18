@@ -114,6 +114,21 @@ def run_trend_feeder() -> int:
                 dna = v.analyze_image(temp_path)
                 T.append_trend_prompt(trend["trend"], dna, file["id"])
                 processed += 1
+
+                # Processed hone ke baad image ko Processed folder me shift karo
+                try:
+                    v.move_file_in_drive(
+                        file["id"],
+                        folder_id,
+                        v.DRIVE_PROCESSED_FOLDER_ID,
+                    )
+                except Exception:
+                    logger.exception(
+                        "[trend:%s] Move to processed failed for %s.",
+                        trend["trend"],
+                        file.get("name", file["id"]),
+                    )
+
                 time.sleep(GAP_SECONDS)
             except Exception:
                 _fail_count[file["id"]] = _fail_count.get(file["id"], 0) + 1
