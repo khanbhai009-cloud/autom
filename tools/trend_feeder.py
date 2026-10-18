@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import tempfile
+import threading
 import time
 
 from sheets import trends as T
@@ -13,7 +14,15 @@ logger = logging.getLogger(__name__)
 TREND_DAILY_LIMIT = 25
 GAP_SECONDS = 30
 TREND_DRIVE_PARENT_ID = os.environ.get("TREND_DRIVE_PARENT_ID", "")
+
+# Alag processed folder chahiye to env me TREND_PROCESSED_FOLDER_ID set karo,
+# warna regular Processed folder hi use hoga.
+TREND_PROCESSED_FOLDER_ID = (
+    os.environ.get("TREND_PROCESSED_FOLDER_ID", "") or v.DRIVE_PROCESSED_FOLDER_ID
+)
+
 _fail_count = {}
+_run_lock = threading.Lock()
 
 
 def create_trend_folder(name: str) -> str:
@@ -25,9 +34,8 @@ def create_trend_folder(name: str) -> str:
     if v.drive_service is None:
         logger.warning("Trend folder not created — Google Drive service account is unavailable.")
         return ""
-        
+
     try:
-        # 1. Service Account se naya folder banana
         metadata = {
             "name": name.strip(),
             "mimeType": "application/vnd.google-apps.folder",
@@ -36,16 +44,15 @@ def create_trend_folder(name: str) -> str:
         folder = v.drive_service.files().create(body=metadata, fields="id").execute()
         folder_id = folder["id"]
 
-        # 2. Dashboard/Upload wale account ko folder ka Editor access dena
         permission_body = {
             "type": "user",
-            "role": "writer",  # Google Drive API me 'writer' hi Editor access hota hai
-            "emailAddress": "finisher@root-monolith-474003-b5.iam.gserviceaccount.com"
+            "role": "writer",
+            "emailAddress": "finisher@root-monolith-474003-b5.iam.gserviceaccount.com",
         }
         v.drive_service.permissions().create(
             fileId=folder_id,
             body=permission_body,
-            fields="id"
+            fields="id",
         ).execute()
 
         return folder_id
@@ -53,6 +60,7 @@ def create_trend_folder(name: str) -> str:
     except Exception:
         logger.exception("Trend folder creation or permission assignment failed for %s.", name)
         return ""
+
 
 def run_trend_feeder() -> int:
     """Process a single batch; return count, or -3 when the daily cap is reached."""
@@ -112,16 +120,15 @@ def run_trend_feeder() -> int:
                 logger.info("[trend:%s] Analyzing %s", trend["trend"], file["name"])
                 v.download_from_drive(file["id"], temp_path)
                 dna = v.analyze_image(temp_path)
+
                 T.append_trend_prompt(trend["trend"], dna, file["id"])
+                logger.info("[trend:%s] Prompt saved for %s", trend["trend"], file["name"])
                 processed += 1
 
-                # Processed hone ke baad image ko Processed folder me shift karo
+                # Prompt save ho chuka hai, isliye move ka error alag handle hota hai
                 try:
-                    v.move_file_in_drive(
-                        file["id"],
-                        folder_id,
-                        v.DRIVE_PROCESSED_FOLDER_ID,
-                    )
+                    v.move_file_in_drive(file["id"], folder_id, TREND_PROCESSED_FOLDER_ID)
+                    logger.info("[trend:%s] Moved %s to processed", trend["trend"], file["name"])
                 except Exception:
                     logger.exception(
                         "[trend:%s] Move to processed failed for %s.",
@@ -145,12 +152,36 @@ def run_trend_feeder() -> int:
     return processed
 
 
+def run_trend_feeder_safe() -> int:
+    """Loop aur manual run dono yahi use karein, taaki ek saath do run na chalein."""
+    if not _run_lock.acquire(blocking=False):
+        logger.info("Trend feeder already running — skipping this trigger.")
+        return 0
+    try:
+        return run_trend_feeder()
+    finally:
+        _run_lock.release()
+
+
+def is_feeder_running() -> bool:
+    return _run_lock.locked()
+
+
+def start_manual_run() -> bool:
+    """Dashboard 'Run now' button yahi call karega. False = already running."""
+    if _run_lock.locked():
+        return False
+    logger.info("Trend feeder manual run requested.")
+    threading.Thread(target=run_trend_feeder_safe, daemon=True).start()
+    return True
+
+
 async def trend_feeder_loop():
     """Run as a background asyncio task alongside the existing Vision Feeder."""
     await asyncio.sleep(60)
     while True:
         try:
-            processed = await asyncio.to_thread(run_trend_feeder)
+            processed = await asyncio.to_thread(run_trend_feeder_safe)
         except Exception:
             logger.exception("Trend feeder loop failed.")
             processed = 0
