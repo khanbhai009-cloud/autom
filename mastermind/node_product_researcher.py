@@ -787,7 +787,13 @@ async def node_product_researcher(state: dict) -> dict:
                     "price":             primary_product["sale_price"],
                     "affiliate_url":     primary_product["affiliate_link"],   # ← affiliate_link field
                     "image_url":         primary_product.get("image_url", ""),
-                    "insert_after_para": int(vision_item.get("suggested_para", len(blog_products) * 2 + 1)),
+                    # First (primary) product is clamped to para <= 2: the buy
+                    # CTA must appear while Pinterest traffic is still reading.
+                    "insert_after_para": (
+                        min(int(vision_item.get("suggested_para", 2)), 2)
+                        if len(blog_products) == 0
+                        else int(vision_item.get("suggested_para", len(blog_products) * 2 + 1))
+                    ),
                     "why_fits":          vision_item.get("why_fits", primary_product.get("ai_reason", "")),
                     "keyword":           keyword,
                     "niche":             niche,

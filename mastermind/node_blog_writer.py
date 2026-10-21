@@ -85,15 +85,23 @@ PIN DETAILS:
   Visual Theme  : {visual_prompt}
   Primary Keyword: {primary_kw}
 
-PRODUCTS TO MENTION NATURALLY (do not write "sponsored" or "affiliate"):
+PRODUCTS TO MENTION NATURALLY:
 {products_brief}
 
 WRITING RULES:
   • Write exactly 9 paragraphs (id: 1 through 9)
   • Each paragraph: 120–150 words, engaging, human-sounding, NOT robotic
   • Naturally weave in the products listed above near their suggested insert point
-  • Do NOT use the word "affiliate", "sponsored", "commission", or "paid"
-  • Sound like a genuine lifestyle blogger recommendation
+  • The FIRST product must be woven in by paragraph 2 at the latest — readers
+    who arrive from Pinterest decide in the first two paragraphs
+  • DISCLOSURE (required, do not skip): if any products are listed above,
+    paragraph 1 must OPEN with this exact sentence:
+    "This post may contain affiliate links — if you buy through them, we may
+    earn a small commission at no extra cost to you."
+    Then continue paragraph 1 with the normal content. If no products are
+    listed, do not add the disclosure sentence.
+  • Sound like a genuine lifestyle blogger recommendation — honest and
+    transparent, never pushy or salesy
   • Include the primary keyword naturally in paragraphs 1, 4, and 8
   • Write 3 FAQ questions a US home lifestyle buyer would Google
   • Assign niche/sub_niche from this style: "{style_name}"
