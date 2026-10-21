@@ -1,4 +1,3 @@
-"""Background Vision processing for images stored in trend-specific Drive folders."""
 import asyncio
 import logging
 import os
@@ -119,7 +118,20 @@ def run_trend_feeder() -> int:
 
                 logger.info("[trend:%s] Analyzing %s", trend["trend"], file["name"])
                 v.download_from_drive(file["id"], temp_path)
-                dna = v.analyze_image(temp_path)
+                
+                # --- NEW PAUSE & RETRY LOGIC FOR API RATE LIMITS (503) ---
+                dna = None
+                for attempt in range(3):  # 3 baar try karega
+                    try:
+                        dna = v.analyze_image(temp_path)
+                        break  # Agar success ho gaya toh loop tod do
+                    except Exception as e:
+                        if attempt < 2:  # Agar pehla ya doosra attempt fail hua
+                            logger.warning("[trend:%s] API busy. 40 seconds ka pause le raha hai... (Attempt %d/3)", trend["trend"], attempt + 1)
+                            time.sleep(40)  # 40 seconds ka timer/pause
+                        else:
+                            raise e  # 3 baar fail hone par main exception block me bhej do
+                # ---------------------------------------------------------
 
                 T.append_trend_prompt(trend["trend"], dna, file["id"])
                 logger.info("[trend:%s] Prompt saved for %s", trend["trend"], file["name"])
