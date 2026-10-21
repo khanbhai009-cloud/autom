@@ -315,7 +315,7 @@ async def publish_next_pin(visual_style: str) -> dict:
 
     if blog_url:
         logger.info(f"📝 [{target_account}] Blog URL to pin: {blog_url}")
-    elif blog_enabled and os.getenv("LINK_GUARD_ENABLED", "true").lower() == "true":
+    elif blog_enabled and os.getenv("LINK_GUARD_ENABLED", "false").lower() == "false":
         # ── LINK GUARD ──────────────────────────────────────────────────────
         # Blog was supposed to provide this pin's destination link but came
         # back empty. Posting anyway would create a pin that can NEVER earn
