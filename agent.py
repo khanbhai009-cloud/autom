@@ -257,11 +257,11 @@ async def publish_next_pin(visual_style: str) -> dict:
       3. Blog post written + published to Firebase → blog_url
       4. Pinterest post via Make.com WITH blog_url as destination link
 
-    When Firebase is not configured, steps 2–3 are skipped. If the blog
-    pipeline is enabled but returns no URL, the LINK GUARD holds the pin
-    instead of posting it with an empty destination link (a linkless pin
-    can never earn an outbound click). Set LINK_GUARD_ENABLED=false to
-    restore the old post-anyway behaviour.
+    When Firebase is not configured, steps 2–3 are skipped. The LINK GUARD
+    (hold the pin when the blog returns no URL) is OFF by default — it only
+    activates when LINK_GUARD_ENABLED is explicitly set to true/1/yes/on.
+    Keep it off until the Firebase + blog setup is complete; pins then post
+    as before, with or without a blog URL.
 
     Args:
         visual_style: one of green_minimalist | sunset_landscape | cozy_architecture | cinematic_retro
@@ -315,7 +315,7 @@ async def publish_next_pin(visual_style: str) -> dict:
 
     if blog_url:
         logger.info(f"📝 [{target_account}] Blog URL to pin: {blog_url}")
-    elif blog_enabled and os.getenv("LINK_GUARD_ENABLED", "false").lower() == "false":
+    elif blog_enabled and os.getenv("LINK_GUARD_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on"):
         # ── LINK GUARD ──────────────────────────────────────────────────────
         # Blog was supposed to provide this pin's destination link but came
         # back empty. Posting anyway would create a pin that can NEVER earn
