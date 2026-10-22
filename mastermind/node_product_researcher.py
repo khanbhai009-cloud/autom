@@ -371,7 +371,7 @@ async def _llm_quality_filter(keyword: str, style: str, niche: str, raw_products
 
         slim.append({
             "asin":    p.get("asin", p.get("product_id", "")),
-            "title":   p.get("productTitle", p.get("product_name", ""))[:80],
+            "title":   _clean_title(p, keyword)[:80],
             "rating":  rating,
             "reviews": reviews,
             "price":   str(p.get("price", p.get("sale_price", ""))),
@@ -417,6 +417,20 @@ async def _llm_quality_filter(keyword: str, style: str, niche: str, raw_products
     except Exception as e:
         logger.warning(f"[QualityFilter] Groq failed: {e} — using basic filter")
         return _basic_quality_filter(raw_products)
+
+
+def _clean_title(p: dict, keyword: str = "") -> str:
+    """Return a real product title — never the "Amazon Product" placeholder.
+    Upstream fetchers have shipped that literal string as the product name
+    when the API's title key didn't match (seen in production Firestore
+    data). Try every known key, then fall back to the search keyword."""
+    for field in ("title", "productTitle", "product_title", "name",
+                  "productName", "product_name"):
+        val = p.get(field)
+        if val and str(val).strip() and str(val).strip().lower() != "amazon product":
+            return str(val).strip()
+    kw = (keyword or "").strip()
+    return kw.title() if kw else "Cozy Home Find"
 
 
 def _extract_rating(p: dict) -> float:
@@ -491,7 +505,7 @@ async def _normalize_product(item: dict, keyword: str = "", niche: str = "") -> 
     from tools.aliexpress import get_rapidapi_gallery, get_best_lifestyle_image
 
     asin    = item.get("asin", item.get("product_id", ""))
-    title   = item.get("productTitle", item.get("product_name", "Amazon Product"))
+    title   = _clean_title(item, keyword)
     price   = item.get("price", item.get("sale_price", "$0.00"))
     rating  = _extract_rating(item)
     reviews = _extract_reviews(item)

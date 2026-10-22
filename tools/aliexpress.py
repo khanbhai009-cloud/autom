@@ -71,6 +71,22 @@ KEYWORDS_BY_NICHE = {
 
 DEFAULT_KEYWORDS = ["tiktok viral finds", "aesthetic must haves", "cool gadgets"]
 
+
+def _extract_title(item: dict, keyword: str = "") -> str:
+    """Best-effort product title. The Axesso/RapidAPI payload does not
+    reliably expose the title under `productTitle` — when that key is
+    missing the old code silently saved the literal placeholder
+    "Amazon Product" as the product name (seen in production data).
+    Try every known key, and as a last resort use the search keyword —
+    a product must never ship with the bare placeholder name."""
+    for key in ("title", "productTitle", "product_title", "name",
+                "productName", "product_name"):
+        val = item.get(key)
+        if val and str(val).strip() and str(val).strip().lower() != "amazon product":
+            return str(val).strip()
+    kw = (keyword or "").strip()
+    return kw.title() if kw else "Cozy Home Find"
+
 # ── VISION AI: BEST IMAGE SELECTOR ──
 async def get_best_lifestyle_image(image_urls: list) -> str:
     if not image_urls: return ""
@@ -233,7 +249,9 @@ async def search_products(keyword: str = "", niche: str = "", max_results: int =
             except Exception:
                 reviews = 0
 
-            title = item.get("productTitle", "")[:60]
+            if idx == 0:
+                logger.info(f"[TitleDebug] RapidAPI item keys: {sorted(item.keys())}")
+            title = _extract_title(item, keyword)[:60]
             if rating < 3.5 or reviews < 50:
                 logger.warning(
                     f"[QualityFilter] ❌ REJECTED: '{title}' | "
@@ -246,7 +264,7 @@ async def search_products(keyword: str = "", niche: str = "", max_results: int =
             )
 
             asin  = item.get("asin")
-            title = item.get("productTitle", "Amazon Product")
+            title = _extract_title(item, keyword)
             price = item.get("price", "$0.00")
 
             # Image via details endpoint
@@ -285,7 +303,7 @@ async def search_products(keyword: str = "", niche: str = "", max_results: int =
             continue
 
         asin  = item.get("asin") or item.get("productId") or item.get("id")
-        title = item.get("title") or item.get("name") or item.get("productTitle") or "Amazon Product"
+        title = _extract_title(item, keyword)
         price = item.get("price") or item.get("salePrice") or item.get("priceText") or "$0.00"
 
         images = item.get("images") or item.get("imageUrls") or item.get("image") or item.get("thumbnail") or []
