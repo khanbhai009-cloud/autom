@@ -43,6 +43,7 @@ import logging
 import os
 import random
 import re
+import time
 from config import CEREBRAS_API_KEY, CEREBRAS_CMO_MODEL, GEMINI_API_KEY, GEMINI_CMO_MODEL
 from mastermind.state import MastermindState
 from sheets import (get_prompts_master, load_style_tracker, save_style_tracker,
@@ -72,6 +73,15 @@ try:
     GROQ_CMO_MODEL = "qwen/qwen3.8-27b"
 except Exception:
     _groq_client = None
+
+# Groq on_demand OTPM (output tokens per minute) limit for this model is 1000.
+# A request whose expected output exceeds the remaining OTPM budget is rejected
+# outright with 429 ("Request too large ... reduce max_tokens") before it runs.
+# max_tokens=6000 blew past the cap, so EVERY Groq fallback died instantly and
+# the pipeline dropped to HARDCODED_FALLBACK. Keep the cap safely under the
+# limit (the CMO JSON strategy fits comfortably); override via env if the
+# account tier is upgraded.
+GROQ_CMO_MAX_TOKENS = int(os.environ.get("GROQ_CMO_MAX_TOKENS", "900"))
 
 # ── Image ratio config ─────────────────────────────────────────────────────────
 _RATIOS = {
@@ -1157,23 +1167,34 @@ def _call_gemini_sync(prompt: str) -> str:
 def _call_groq_sync(prompt: str) -> str:
     if not _groq_client:
         raise ValueError("GROQ_API_KEY not configured.")
-    try:
-        response = _groq_client.chat.completions.create(
-            model=GROQ_CMO_MODEL,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user",   "content": prompt},
-            ],
-            temperature=0.80,
-            max_tokens=6000,
-            response_format={"type": "json_object"} 
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        err_str = str(e)
-        if "429" in err_str or "rate" in err_str.lower():
-            raise RuntimeError(f"Groq rate-limited (429) — aborting: {e}") from e
-        raise
+    # Two attempts max: if the OTPM minute budget is momentarily exhausted
+    # (e.g. the other account's call just used it), wait for the window to
+    # reset and retry ONCE instead of dropping straight to HARDCODED_FALLBACK.
+    for attempt in (1, 2):
+        try:
+            response = _groq_client.chat.completions.create(
+                model=GROQ_CMO_MODEL,
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "user",   "content": prompt},
+                ],
+                temperature=0.80,
+                max_tokens=GROQ_CMO_MAX_TOKENS,
+                response_format={"type": "json_object"}
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            err_str = str(e)
+            if "429" in err_str or "rate" in err_str.lower():
+                if attempt == 1:
+                    logger.warning(
+                        "   Groq 429 (OTPM) — waiting 60s for the per-minute "
+                        "window to reset, then retrying once."
+                    )
+                    time.sleep(60)
+                    continue
+                raise RuntimeError(f"Groq rate-limited (429) — aborting: {e}") from e
+            raise
         
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN ORCHESTRATION — Sequential rotation per account
