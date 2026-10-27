@@ -296,9 +296,11 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
 
 # ── App ────────────────────────────────────────────────────────────────────────
-app = FastAPI(title="Pinteresto Mastermind", lifespan=lifespan)
+app = FastAPI(title="Pinteresto Mastermind", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(trend_router)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["https://pinteresto.vercel.app", "https://autom-a6tl.onrender.com"], allow_methods=["*"], allow_headers=["*"])
+from security import ApiKeyMiddleware
+app.add_middleware(ApiKeyMiddleware)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
@@ -831,6 +833,7 @@ def get_logs(n: int = 200, filter: str = ""):
     """Return last N log lines, optionally filtered by keyword/regex."""
     import re
     lines = _mem_handler.get_lines(n)
+    filter = (filter or "")[:100]
     if filter and filter != "ALL":
         try:
             pat = re.compile(filter, re.IGNORECASE)
