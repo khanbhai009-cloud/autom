@@ -286,6 +286,32 @@ async def publish_next_pin(visual_style: str) -> dict:
     board_id      = cmo.get("board_id") or ""
     board_name    = cmo.get("board_name") or ""
 
+    # ── 1b. V4 Product Router — destination for THIS pin ─────────────────────
+    # The graph's node_product_router normally injects these fields into the
+    # strategy. If they are absent (router node skipped / older call path),
+    # run the router here so the pin never loses its product link to a
+    # wiring gap. HomeDecor only — the kits don't fit the Tech account.
+    destination_url = str(cmo.get("destination_url", "") or "")
+    product_id      = str(cmo.get("product_id", "") or "")
+    product_cta     = str(cmo.get("product_cta", "") or "")
+    if "destination_url" not in cmo and target_account == "Account1_HomeDecor":
+        try:
+            from mastermind.product_router import log_router_decision, route_product
+            _decision = route_product(cmo, account_key="account_1")
+            log_router_decision(cmo, _decision, account_key="account_1")
+            destination_url = _decision.get("destination_url", "")
+            product_id      = _decision.get("product_id", "")
+            product_cta     = _decision.get("product_cta", "")
+        except Exception as _router_err:
+            logger.warning(f"🧭 [{target_account}] Router fallback failed (pin posts clean): {_router_err}")
+
+    if destination_url:
+        logger.info(f"🧭 [{target_account}] Product destination: {product_id} → {destination_url}")
+        # Append the product CTA to the caption copy (webhook caps at 500
+        # chars; CTA is added only when a product actually matched).
+        if product_cta and "gumroad.com" not in desc.lower() and "link below" not in desc.lower():
+            desc = (desc.rstrip() + "\n\n" + product_cta) if desc else product_cta
+
     if not visual_prompt:
         visual_prompt = (
             f"aesthetic {visual_style.replace('_', ' ')} photography, "
@@ -315,6 +341,10 @@ async def publish_next_pin(visual_style: str) -> dict:
 
     if blog_url:
         logger.info(f"📝 [{target_account}] Blog URL to pin: {blog_url}")
+    elif destination_url:
+        # V4: a router product destination IS a valid destination — the
+        # guard's premise (no blog URL = no destination) no longer holds.
+        logger.info(f"🧭 [{target_account}] No blog URL — pin will carry the product destination instead")
     elif blog_enabled and os.getenv("LINK_GUARD_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on"):
         # ── LINK GUARD ──────────────────────────────────────────────────────
         # Blog was supposed to provide this pin's destination link but came
@@ -353,6 +383,7 @@ async def publish_next_pin(visual_style: str) -> dict:
             blog_url=blog_url,
             board_id=board_id,
             board_name=board_name,
+            destination_url=destination_url,
         )
     except Exception as e:
         return {"success": False, "reason": f"Webhook error: {e}"}
@@ -366,6 +397,8 @@ async def publish_next_pin(visual_style: str) -> dict:
             "pin_type":              "VIRAL_PIN",
             "image_url":             imgbb_url,
             "blog_url":              blog_url,
+            "product_id":            product_id,
+            "destination_url":       destination_url,
             "last_posted_image_url": imgbb_url,
         }
 
