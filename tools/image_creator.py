@@ -84,12 +84,15 @@ _POLLINATIONS_BASE = "https://image.pollinations.ai/prompt"
 _HF_FLUX_URL       = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
 
 # ── Negative prompt — always appended to block garbage outputs ─────────────────
+# V5 note: "dark, moody, gloomy, desaturated" were REMOVED — they banned the
+# warm evening/candlelit moods the Mood Engine now deliberately creates.
+# Quality negatives stay; mood is steered by the positive prompt instead.
 _NEGATIVE_PROMPT = (
     "ugly, blurry, watermark, text overlay, logo, signature, "
     "cartoon, anime, illustration, drawing, painting, CGI plastic, "
     "overexposed, underexposed, low quality, jpeg artifacts, "
     "distorted, deformed, duplicate, cropped, frame, border, "
-    "dark, moody, noir, desaturated, gloomy, depressing"
+    "harsh shadows, cluttered mess, dull flat lighting"
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -151,28 +154,196 @@ _SEASONS_WEATHER = [
 ]
 
 
-def _pick_variety_modifiers() -> dict:
-    """Pick one random modifier from each of the 4 focused pools."""
+# ══════════════════════════════════════════════════════════════════════════════
+# VARIETY ENGINE v5 — MOOD & STORY LAYER (owner request, 29 Oct 2026)
+#
+# Why: the same Sheets prompts kept producing the same FEEL — v4 only varied
+# angle/light/composition/season inside one bright-daylight family. v5 adds
+# the missing dimension: a MOOD with a small lived-in STORY (storytelling
+# props), scene-aware (garden vs interior), including warm romantic moods
+# ("evening for two", "rainy window", "love story moment" with a soft-focus
+# couple seen from behind — implied romance, no face-garbling close-ups).
+#
+# This runs inside generate_pin_image(), the single choke point that BOTH
+# prompt paths pass through — the CMO's expanded prompt AND the Sheets
+# t2i_base used on fallback — so every image gets enhanced, whichever path
+# produced its prompt. Zero LLM calls, zero quota: pure composition.
+# An anti-repeat history (data/variety_history.json) re-rolls combos that
+# were used recently. Disable with IMAGE_MOOD_ENGINE=off (falls back to v4).
+# ══════════════════════════════════════════════════════════════════════════════
+
+MOOD_ENGINE_ENABLED = os.environ.get("IMAGE_MOOD_ENGINE", "on").strip().lower() not in ("off", "false", "0", "no")
+
+# Each mood: name, scenes it fits, its own lighting, 1-2 story props picked
+# at random, and an optional season override (a winter-hearth mood must not
+# collide with a spring season line).
+_MOODS = [
+    {"name": "candlelit_evening_for_two", "scenes": ("interior",), "season": None,
+     "lighting": "warm candlelit evening glow with soft golden ambient light",
+     "props": ["two steaming mugs side by side on a wooden tray",
+               "an open book resting on a shared knitted throw over the sofa",
+               "two glasses and a small vase of roses on the side table"]},
+    {"name": "lazy_sunday_morning", "scenes": ("interior",), "season": None,
+     "lighting": "soft lazy morning light through linen curtains",
+     "props": ["a breakfast tray for two with croissants and coffee",
+               "rumpled soft bedding and an open paperback left mid-chapter"]},
+    {"name": "rainy_window_evening", "scenes": ("interior",), "season": "rainy evening outside, droplets glistening on the window glass",
+     "lighting": "cozy warm interior light against a rainy window evening",
+     "props": ["two cups of tea beside a rain-streaked window",
+               "a shared blanket and a small stack of novels by the armchair"]},
+    {"name": "fireside_winter_night", "scenes": ("interior",), "season": "snowy winter evening outside the window",
+     "lighting": "flickering fireplace glow with warm amber light",
+     "props": ["two armchairs angled toward the fire with a shared throw",
+               "hot chocolate mugs and a plate of cookies on the table between them"]},
+    {"name": "golden_hour_garden_for_two", "scenes": ("garden",), "season": None,
+     "lighting": "romantic golden hour backlight through garden foliage",
+     "props": ["a garden bench for two with cushions and a shared shawl",
+               "two lemonade glasses on a small iron table"]},
+    {"name": "fairy_light_evening", "scenes": ("garden",), "season": "soft summer dusk",
+     "lighting": "twinkling string lights at dusk with warm bokeh",
+     "props": ["a candlelit table for two under string lights",
+               "two chairs pulled close around a small glowing fire bowl"]},
+    {"name": "botanical_morning", "scenes": ("interior", "garden"), "season": None,
+     "lighting": "fresh greenhouse morning light filtering through leaves",
+     "props": ["a watering can and freshly cut flowers in a ceramic jug",
+               "an open garden journal and terracotta pots on the bench"]},
+    {"name": "seaside_breeze", "scenes": ("interior", "garden"), "season": None,
+     "lighting": "bright sea-breeze daylight, white and airy",
+     "props": ["striped linen draped over a woven basket",
+               "a bowl of lemons and a glass pitcher on the table"]},
+    {"name": "autumn_harvest", "scenes": ("interior", "garden"), "season": "golden autumn day, amber leaves drifting",
+     "lighting": "warm autumn afternoon light with amber tones",
+     "props": ["pumpkins and a basket of apples by the door",
+               "a plaid throw folded over the chair arm"]},
+    {"name": "zen_calm", "scenes": ("interior",), "season": None,
+     "lighting": "serene soft daylight, calm and uncluttered",
+     "props": ["a single ceramic vase with eucalyptus stems",
+               "stacked linen cushions in soft neutral tones"]},
+    {"name": "vintage_film_afternoon", "scenes": ("interior",), "season": None,
+     "lighting": "nostalgic warm afternoon light like vintage film",
+     "props": ["a record player with vinyl sleeves leaning on the shelf",
+               "polaroid photos pinned in a row above the desk"]},
+    {"name": "festive_hearth", "scenes": ("interior",), "season": "cozy winter celebration season",
+     "lighting": "festive warm glow with twinkling accent lights",
+     "props": ["a garland with oranges and cinnamon sticks on the mantel",
+               "wrapped gifts and a bowl of walnuts by the tree"]},
+    {"name": "market_morning", "scenes": ("interior", "garden"), "season": None,
+     "lighting": "cheerful market-morning brightness",
+     "props": ["a basket of fresh bread and sunflowers",
+               "jam jars on a checked cloth on the table"]},
+    {"name": "love_story_moment", "scenes": ("interior", "garden"), "season": None,
+     "lighting": "dreamy golden light with soft-focus edges",
+     "props": ["in the blurred background, a couple seen from behind holding hands, faces not visible",
+               "two coffee cups side by side and one shared open book in the foreground"]},
+]
+
+# One short sensory detail — the texture v4 removed for bloat, back in a
+# single-phrase budget so prompts stay lean.
+_MICRO_DETAILS = [
+    "visible linen and warm wood-grain textures",
+    "soft dew drops glistening on leaves",
+    "gentle steam rising from a warm cup",
+    "delicate lace-curtain shadows on the wall",
+    "ceramic glaze catching the light",
+    "a few fresh petals scattered naturally",
+    "warm wood tones with brushed brass accents",
+    "crisp folded textiles in soft layers",
+]
+
+_GARDEN_WORDS = ("garden", "backyard", "patio", "porch", "terrace", "balcony",
+                 "greenhouse", "lawn", "cottage exterior", "flower bed", "courtyard")
+
+_HISTORY_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "data", "variety_history.json",
+)
+_HISTORY_CAP = 60
+
+
+def _detect_scene(base_prompt: str) -> str:
+    text = base_prompt.lower()
+    return "garden" if any(w in text for w in _GARDEN_WORDS) else "interior"
+
+
+def _load_history() -> list:
+    try:
+        import json
+        with open(_HISTORY_PATH, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save_history(history: list) -> None:
+    try:
+        import json
+        os.makedirs(os.path.dirname(_HISTORY_PATH), exist_ok=True)
+        with open(_HISTORY_PATH, "w", encoding="utf-8") as fh:
+            json.dump(history[-_HISTORY_CAP:], fh)
+    except Exception:
+        pass  # history is best-effort; never block an image over it
+
+
+def _pick_variety_modifiers(base_prompt: str = "") -> dict:
+    """Pick variety modifiers — v5 mood-aware when enabled, else v4 pools."""
+    if not MOOD_ENGINE_ENABLED:
+        return {
+            "angle":    random.choice(_CAMERA_ANGLES),
+            "lighting": random.choice(_LIGHTING_MOODS),
+            "comp":     random.choice(_COMP_STYLES),
+            "season":   random.choice(_SEASONS_WEATHER),
+            "mood":     "legacy_v4",
+            "props":    "",
+            "detail":   "",
+        }
+
+    scene = _detect_scene(base_prompt)
+    fitting = [m for m in _MOODS if scene in m["scenes"]] or _MOODS
+    history = _load_history()
+
+    # Anti-repeat: re-roll the (mood, angle, comp) combo if it was used in
+    # the recent window — same base prompt must not produce the same look.
+    best = None
+    for _attempt in range(6):
+        mood = random.choice(fitting)
+        angle = random.choice(_CAMERA_ANGLES)
+        comp = random.choice(_COMP_STYLES)
+        key = mood["name"] + "|" + angle + "|" + comp
+        best = (mood, angle, comp, key)
+        if key not in history:
+            break
+    mood, angle, comp, key = best
+    history.append(key)
+    _save_history(history)
+
+    props = ", ".join(random.sample(mood["props"], k=min(2, len(mood["props"]))))
     return {
-        "angle":    random.choice(_CAMERA_ANGLES),
-        "lighting": random.choice(_LIGHTING_MOODS),
-        "comp":     random.choice(_COMP_STYLES),
-        "season":   random.choice(_SEASONS_WEATHER),
+        "angle":    angle,
+        "lighting": mood["lighting"],
+        "comp":     comp,
+        "season":   mood["season"] or random.choice(_SEASONS_WEATHER),
+        "mood":     mood["name"],
+        "props":    props,
+        "detail":   random.choice(_MICRO_DETAILS),
     }
 
 
 def _inject_variety(base_prompt: str) -> tuple[str, dict]:
     """
-    Inject 4 focused variety modifiers into the base prompts-master visual_prompt.
-    Keeps total prompt lean (~350-450 chars) so the model stays on-theme.
+    Enrich the base visual prompt (CMO-expanded or Sheets t2i_base — both
+    land here) with variety + mood/story modifiers.
     Returns (enriched_prompt, modifiers_used) — modifiers logged for debugging.
     """
-    mods = _pick_variety_modifiers()
+    mods = _pick_variety_modifiers(base_prompt)
 
-    variety_block = (
-        f"{mods['angle']}, {mods['lighting']}, "
-        f"{mods['comp']}, {mods['season']}"
-    )
+    parts = [mods["angle"], mods["lighting"]]
+    if mods.get("props"):
+        parts.append(mods["props"])
+    if mods.get("detail"):
+        parts.append(mods["detail"])
+    parts += [mods["comp"], mods["season"]]
+    variety_block = ", ".join(parts)
 
     quality_tail = "4K ultra HD, photorealistic, highly detailed, award-winning photography"
 
@@ -185,7 +356,7 @@ def _inject_variety(base_prompt: str) -> tuple[str, dict]:
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-def _enrich_prompt(prompt: str, max_chars: int = 600) -> str:
+def _enrich_prompt(prompt: str, max_chars: int = 750) -> str:
     """Ensure quality tail present, then truncate. Variety already injected upstream."""
     base = prompt.strip()
     if "4K" not in base and "4k" not in base:
@@ -546,10 +717,11 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
     w, h = _get_dims(ratio)
     logger.info(f"🎨 [Image Pipeline] PIN | ratio={ratio} ({w}x{h})")
 
-    # Inject variety — 4 focused modifiers, lean prompt
+    # Inject variety + mood/story (v5) — same treatment for CMO prompts
+    # and Sheets fallback prompts alike; this is the single choke point.
     enriched_prompt, mods = _inject_variety(visual_prompt)
     logger.info(
-        f"🎲 [Variety Engine v4] "
+        f"🎲 [Variety Engine v5] mood={mods.get('mood', '?')} | "
         f"angle={mods['angle'][:35]} | "
         f"light={mods['lighting'][:35]} | "
         f"comp={mods['comp'][:35]} | "
