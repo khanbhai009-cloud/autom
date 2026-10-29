@@ -1,18 +1,18 @@
 """
 mastermind/graph.py — LangGraph Mastermind CEO Pipeline
-Three-node directed graph:
 
-  [data_intelligence] → [cmo_mastermind] → [agent_executor] → END
+  [firebase_loader] → [cmo_mastermind] → [board_selector]
+      → [product_router] → [agent_executor] → END
 
-Blog pipeline runs INLINE inside publish_next_pin (agent.py):
-  Image created → Vision AI → Blog written → Firebase → blog_url
-  → Pinterest post WITH blog_url as destination link
+Direction comes from Pinterest Trends (trend system) + the Sheets style
+library — NOT from account analytics. The old Data Intelligence node was
+removed on the owner's call (30 Oct 2026): Pinterest analytics cannot be
+fed into this system, and the CMO never actually used the fetched rows
+(its prompt is built from the sheet style row, boards and trends), so the
+node only produced WorksheetNotFound errors and a misleading fallback flag.
 
-Manual blog triggers (dashboard buttons) use _run_blog_pipeline() in main.py.
-
-CMO engine  : Cerebras qwen-3-235b-a22b-instruct-2507
-Exec engine : Groq llama-3.3-70b-versatile (Cerebras fallback)
-Blog engine : Gemini 2.5 Flash (writer + vision) + Firebase Firestore
+CMO engine  : Gemini → Groq gpt-oss-120b (thinking) → sheet build
+Exec engine : Groq qwen (task execution)
 """
 import logging
 
@@ -20,7 +20,6 @@ from langgraph.graph import END, StateGraph
 
 from mastermind.node_firebase import node_firebase_loader
 from mastermind.node_cmo import node_cmo_mastermind
-from mastermind.node_data import node_data_intelligence
 from mastermind.node_board_selector import node_board_selector
 from mastermind.node_product_router import node_product_router
 from mastermind.state import MastermindState
@@ -101,15 +100,13 @@ def build_mastermind_graph():
     g = StateGraph(MastermindState)
 
     g.add_node("firebase_loader",   node_firebase_loader)
-    g.add_node("data_intelligence", node_data_intelligence)
     g.add_node("cmo_mastermind",    node_cmo_mastermind)
     g.add_node("board_selector",    node_board_selector)
     g.add_node("product_router",    node_product_router)
     g.add_node("agent_executor",    node_agent_executor)
 
     g.set_entry_point("firebase_loader")
-    g.add_edge("firebase_loader",   "data_intelligence")
-    g.add_edge("data_intelligence", "cmo_mastermind")
+    g.add_edge("firebase_loader",   "cmo_mastermind")
     g.add_edge("cmo_mastermind",    "board_selector")
     g.add_edge("board_selector",    "product_router")
     g.add_edge("product_router",    "agent_executor")

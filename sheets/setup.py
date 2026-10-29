@@ -17,8 +17,8 @@ REQUIRED_SHEETS: dict[str, list] = {
     "Style_Tracker":   ["account_1", "account_2"],
     "Prompt_Tracker":  ["tracker_key", "last_idx"],
     "Vision_Tracker":  ["date", "file_name", "style_key", "account", "status", "timestamp"],
-    "Analytics_Log":   ["Date", "Impressions", "Clicks", "Outbound Clicks", "Saves"],
-    "Analytics_logs2": ["Date", "Impressions", "Clicks", "Outbound Clicks", "Saves"],
+    # Analytics tabs intentionally NOT required — analytics was removed
+    # from the pipeline (owner, 30 Oct 2026); direction comes from Trends.
     # V4 Product Router — owner-managed product registry + decision log.
     # Owner workflow: list the product on Gumroad, then add ONE row here
     # (url + description/guide + keywords). The router reads this tab.
