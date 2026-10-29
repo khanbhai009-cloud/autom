@@ -1,10 +1,18 @@
 """
-tools/image_creator.py — Triple-Layer T2I Image Pipeline  [VARIETY ENGINE v4 — CLEAN & OPTIMIZED]
+tools/image_creator.py — T2I Image Pipeline  [VARIETY ENGINE v4 — CLEAN & OPTIMIZED]
 
 MODELS (in order):
-  1. Cloudflare     — @cf/black-forest-labs/flux-1-schnell (Primary)
-  2. Hugging Face   — black-forest-labs/FLUX.1-schnell (Secondary fallback)
-  3. Pollinations   — free, URL-based (Last resort fallback)
+  1. Cloudflare     — @cf/black-forest-labs/flux-2-klein-4b (Primary, free)
+  2. Replicate      — black-forest-labs/flux-schnell (V4 addition; only when
+                      REPLICATE_API_TOKEN is set — $0.003/img, identical
+                      schnell output for Cloudflare 5xx/outage days)
+  3. Hugging Face   — black-forest-labs/FLUX.1-schnell (legacy; HF removed
+                      schnell from hf-inference in Jul 2026 — 410 fast-bail)
+  4. Pollinations   — free, URL-based (Last resort fallback)
+
+Cloudflare 520-524 (incl. 523 "origin unreachable") are transient infra
+errors per Cloudflare's own docs — the retry loop below already absorbs the
+common case; a persistent 523 is exactly what the Replicate layer is for.
 
 VARIETY ENGINE v4 — What changed from v3:
   REMOVED (were hurting quality):
@@ -50,6 +58,12 @@ logger = logging.getLogger(__name__)
 
 # ── HuggingFace token from env ─────────────────────────────────────────────────
 HF_API_TOKEN = os.environ.get("HF_TOKEN", "")
+
+# ── Replicate token from env (V4 fallback layer — off until set) ───────────────
+REPLICATE_API_TOKEN = os.environ.get("REPLICATE_API_TOKEN", "")
+_REPLICATE_FLUX_URL = "https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions"
+_REP_MAX_RETRIES    = 2
+_REP_RETRY_DELAY    = 10
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 _CALL_TIMEOUT        = 180
@@ -321,11 +335,69 @@ async def _t2i_cloudflare(prompt: str, ratio: str) -> Optional[bytes]:
             logger.info(f"⏳ [Cloudflare] Waiting {delay}s before retry...")
             await asyncio.sleep(delay)
 
-    logger.error("❌ [Cloudflare] All attempts failed — moving to HuggingFace.")
+    logger.error("❌ [Cloudflare] All attempts failed — moving to Replicate.")
     return None
 
 
-# ── Model 2: Hugging Face FLUX.1-schnell ───────────────────────────────────────
+# ── Model 2: Replicate FLUX schnell (V4 — Cloudflare outage fallback) ─────────
+# Official model endpoint with Prefer: wait — Replicate runs the prediction
+# synchronously and returns output image URLs. Same schnell model family as
+# the old HF layer, so fallback pins keep the same visual character.
+# Cost: $0.003 per output image (flat) — even a full month of fallback
+# traffic (~600 pins) is under $2. Layer is OFF until REPLICATE_API_TOKEN
+# is set in the environment.
+
+async def _replicate_once(prompt: str, ratio: str) -> Optional[bytes]:
+    enriched = _enrich_prompt(prompt, max_chars=500)
+    headers = {
+        "Authorization": f"Bearer {REPLICATE_API_TOKEN}",
+        "Content-Type": "application/json",
+        "Prefer": "wait",
+    }
+    payload = {
+        "input": {
+            "prompt": enriched,
+            "aspect_ratio": "9:16" if ratio == "9:16" else "1:1",
+            "output_format": "jpg",
+            "output_quality": 90,
+            "num_outputs": 1,
+        }
+    }
+    async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
+        resp = await client.post(_REPLICATE_FLUX_URL, headers=headers, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        output = data.get("output") or []
+        if isinstance(output, str):
+            output = [output]
+        if not output:
+            logger.error(f"❌ [Replicate] No output in response: {str(data)[:200]}")
+            return None
+        return await _download_bytes(output[0])
+
+
+async def _t2i_replicate(prompt: str, ratio: str) -> Optional[bytes]:
+    if not REPLICATE_API_TOKEN:
+        logger.info("ℹ️ [Replicate] REPLICATE_API_TOKEN not set — layer skipped.")
+        return None
+    for attempt in range(1, _REP_MAX_RETRIES + 1):
+        try:
+            logger.info(f"🎨 [Replicate] Attempt {attempt}/{_REP_MAX_RETRIES} | ratio={ratio}")
+            img = await _replicate_once(prompt, ratio)
+            if _is_valid(img):
+                logger.info(f"✅ [Replicate] {len(img):,} bytes on attempt {attempt}")
+                return img
+            logger.warning(f"⚠️ [Replicate] Attempt {attempt}: invalid/too small")
+        except Exception as e:
+            logger.warning(f"⚠️ [Replicate] Attempt {attempt} error: {type(e).__name__}: {e!r}")
+        if attempt < _REP_MAX_RETRIES:
+            logger.info(f"⏳ [Replicate] Waiting {_REP_RETRY_DELAY}s before retry...")
+            await asyncio.sleep(_REP_RETRY_DELAY)
+    logger.error("❌ [Replicate] All attempts failed — moving to HuggingFace.")
+    return None
+
+
+# ── Model 3: Hugging Face FLUX.1-schnell ───────────────────────────────────────
 
 async def _huggingface_once(prompt: str, ratio: str) -> Optional[bytes]:
     if not HF_API_TOKEN:
@@ -488,9 +560,14 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
     # PRIMARY: Cloudflare
     image_bytes = await _t2i_cloudflare(enriched_prompt, ratio)
 
-    # SECONDARY: HuggingFace
+    # SECONDARY: Replicate (same schnell model, paid micro-fallback)
     if not image_bytes:
-        logger.info("🔄 [Image Pipeline] Cloudflare exhausted — trying HuggingFace...")
+        logger.info("🔄 [Image Pipeline] Cloudflare exhausted — trying Replicate...")
+        image_bytes = await _t2i_replicate(enriched_prompt, ratio)
+
+    # TERTIARY: HuggingFace (legacy — schnell removed Jul 2026, fast-bails on 410)
+    if not image_bytes:
+        logger.info("🔄 [Image Pipeline] Replicate exhausted — trying HuggingFace...")
         image_bytes = await _t2i_huggingface(enriched_prompt, ratio)
 
     # LAST RESORT: Pollinations
