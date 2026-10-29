@@ -54,6 +54,11 @@ from config import (
     POLLINATIONS_MODEL
 )
 
+try:
+    from config import IMAGE_MOOD_ENGINE as _IMAGE_MOOD_ENGINE_CFG
+except Exception:  # older config without the switches section
+    _IMAGE_MOOD_ENGINE_CFG = None
+
 logger = logging.getLogger(__name__)
 
 # ── HuggingFace token from env ─────────────────────────────────────────────────
@@ -172,7 +177,13 @@ _SEASONS_WEATHER = [
 # were used recently. Disable with IMAGE_MOOD_ENGINE=off (falls back to v4).
 # ══════════════════════════════════════════════════════════════════════════════
 
-MOOD_ENGINE_ENABLED = os.environ.get("IMAGE_MOOD_ENGINE", "on").strip().lower() not in ("off", "false", "0", "no")
+# Switch config.py ke "SAARE ON/OFF SWITCHES" section se aata hai
+# (Render env IMAGE_MOOD_ENGINE se badalta hai); config purana ho toh
+# yahi file env padh legi.
+if _IMAGE_MOOD_ENGINE_CFG is not None:
+    MOOD_ENGINE_ENABLED = bool(_IMAGE_MOOD_ENGINE_CFG)
+else:
+    MOOD_ENGINE_ENABLED = os.environ.get("IMAGE_MOOD_ENGINE", "on").strip().lower() not in ("off", "false", "0", "no")
 
 # Each mood: name, scenes it fits, its own lighting, 1-2 story props picked
 # at random, and an optional season override (a winter-hearth mood must not
