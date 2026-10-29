@@ -213,6 +213,14 @@ def _products_from_sheet() -> Optional[dict]:
     return products
 
 
+def invalidate_products_cache() -> None:
+    """Force the next route_product() call to re-read the Products sheet.
+    Called by product_routes when the owner adds/toggles a product via the
+    app, so a new product goes live immediately instead of within the TTL."""
+    _products_cache["loaded_at"] = 0.0
+    _products_cache["products"] = None
+
+
 def get_products() -> dict:
     """Sheet products (cached 15 min) or the built-in fallback kits."""
     now = time.monotonic()
