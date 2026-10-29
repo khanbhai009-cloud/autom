@@ -92,7 +92,12 @@ GROQ_CMO_MAX_TOKENS = int(os.environ.get("GROQ_CMO_MAX_TOKENS", "900"))
 # slower reasoning costs nothing on a healthy day; it replaces the old
 # cliff-edge drop straight into HARDCODED_FALLBACK.
 GROQ_THINKING_MODEL = os.environ.get("GROQ_THINKING_MODEL", "openai/gpt-oss-120b")
-GROQ_THINKING_MAX_TOKENS = int(os.environ.get("GROQ_THINKING_MAX_TOKENS", "1500"))
+# gpt-oss-120b ek REASONING model hai — hidden reasoning bhi isi budget se
+# khata hai. 1500 par reasoning hi budget kha jata tha aur JSON aadha kat
+# kar Groq 400 json_validate_failed deta tha (30 Oct 2026 ki raat wala bug).
+# 4096 = reasoning + poora JSON aaram se; free-tier 8K TPM ke andar rehta hai
+# (prompt ~1.3K + completion ≤4K ≈ 5.4K).
+GROQ_THINKING_MAX_TOKENS = int(os.environ.get("GROQ_THINKING_MAX_TOKENS", "4096"))
 
 # ── Image ratio config ─────────────────────────────────────────────────────────
 _RATIOS = {
@@ -268,6 +273,67 @@ def _get_prompt_for_style(account_key: str, style_key: str) -> str:
         return hardcoded
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ROW ROTATION ENGINE (owner's model, 30 Oct 2026)
+# ──────────────────────────────────────────────────────────────────────────────
+# The sheet IS the queue: har pin = us account ki Prompts_Master ki AGli ROW
+# (sheet order, top → bottom, phir wrap). Style ab rotation ko drive NAHI
+# karta — row ki style_key/label/description/tags/niche sirf usi pin ke
+# title/description/hashtags banane ke kaam aate hain.
+#
+# Kyun: owner ke paas 372 prompt ROWS hain (A1: 323, A2: 49) lekin purani
+# style-rotation 313+45 style_keys par ghoomti thi aur har style ki sirf
+# PEHLI row ki details use hoti thi — baaki rows ki mehnat waste, counter
+# "/313" dikhata tha jabki prompts 372 the, aur confusion hi confusion.
+# Pointer Prompt_Tracker sheet me "{account}__row" key par rehta hai.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _get_account_rows(account_key: str) -> list:
+    """All Prompts_Master rows for this account (sheet order) with a usable t2i_base."""
+    try:
+        return [
+            row for row in get_prompts_master()
+            if str(row.get("account", "")).strip() == account_key
+            and str(row.get("t2i_base", "")).strip()
+        ]
+    except Exception as e:
+        logger.warning(f"[{account_key}] Account rows fetch failed — {type(e).__name__}: {e}")
+        return []
+
+
+def _get_next_row(account_key: str) -> tuple:
+    """
+    Pick the NEXT row for this account and advance the row pointer.
+    Returns (row_dict | None, position_1based, total_rows).
+    """
+    rows = _get_account_rows(account_key)
+    if not rows:
+        return None, 0, 0
+    tracker   = load_prompt_tracker()
+    key       = f"{account_key}__row"
+    last_idx  = tracker.get(key, -1)
+    next_idx  = (last_idx + 1) % len(rows)
+    tracker[key] = next_idx
+    save_prompt_tracker(tracker)
+    row = rows[next_idx]
+    logger.info(
+        f"   [{account_key}] Prompt Rotation [{next_idx + 1}/{len(rows)}] "
+        f"row → style={row.get('style_key', '?')} | label={str(row.get('label', ''))[:48]}"
+    )
+    return row, next_idx + 1, len(rows)
+
+
+def _peek_next_row(account_key: str) -> tuple:
+    """Next row WITHOUT advancing the pointer. Returns (row | None, pos, total)."""
+    rows = _get_account_rows(account_key)
+    if not rows:
+        return None, 0, 0
+    tracker  = load_prompt_tracker()
+    last_idx = tracker.get(f"{account_key}__row", -1)
+    next_idx = (last_idx + 1) % len(rows)
+    return rows[next_idx], next_idx + 1, len(rows)
+
+
 def peek_next_pin_info() -> dict:
     """
     Public function — peek at the next pin for each account WITHOUT advancing trackers.
@@ -276,26 +342,26 @@ def peek_next_pin_info() -> dict:
     """
     result = {}
     for acc_key in ["account_1", "account_2"]:
-        next_style = _peek_current_style(acc_key)
-        sheet_row  = _get_sheet_row_for_style(acc_key, next_style)
-        style_meta = VISUAL_STYLES.get(next_style, {})
-
+        sheet_row, pos, total = _peek_next_row(acc_key)
         if sheet_row:
-            label       = str(sheet_row.get("label", "")).strip() or style_meta.get("label", next_style)
+            next_style  = str(sheet_row.get("style_key", "")).strip()
+            label       = str(sheet_row.get("label", "")).strip() or next_style
             niche       = str(sheet_row.get("niche_affinity", "")).strip()
-            prompt_prev = (str(sheet_row.get("t2i_base", "")).strip()[:200] + "...") if sheet_row.get("t2i_base") else ""
+            prompt_prev = str(sheet_row.get("t2i_base", "")).strip()[:200] + "..."
             tags        = str(sheet_row.get("tags", "")).strip()
             source      = "Sheets"
         else:
+            # Sheets down — emergency style peek (purana raasta)
+            next_style  = _peek_current_style(acc_key)
+            style_meta  = VISUAL_STYLES.get(next_style, {})
             label       = style_meta.get("label", next_style)
             niche       = ", ".join(style_meta.get("niche_affinity", []))
             prompt_prev = style_meta.get("t2i_base", "")[:200] + "..."
             tags        = ", ".join(style_meta.get("tags", []))
             source      = "hardcoded"
-
-        order   = _get_effective_style_order(acc_key)
-        tracker = load_style_tracker()
-        pos     = (tracker.get(acc_key, -1) + 1) % len(order)
+            total       = len(_get_effective_style_order(acc_key))
+            tracker     = load_style_tracker()
+            pos         = (tracker.get(acc_key, -1) + 1) % total
 
         result[acc_key] = {
             "next_style":     next_style,
@@ -304,7 +370,7 @@ def peek_next_pin_info() -> dict:
             "prompt_preview": prompt_prev,
             "tags":           tags,
             "source":         source,
-            "rotation":       f"{pos + 1}/{len(order)}",
+            "rotation":       f"{pos}/{total}",
         }
     return result
 
@@ -831,7 +897,7 @@ HARDCODED_FALLBACK: dict = {
         "visual_style":  "boho_aesthetic_study",
         "niche":         "cozy",  # ← NICHE FOR BOARD SELECTION
         "vibe":          "Golden morning light, rattan chair, gallery wall, trailing pothos, art supplies on oak desk",
-        "title":         "This Study Corner Made Me Want To Stay Home Forever",
+        "title":         "Boho Study Room Ideas: Aesthetic Home Office Corner with Gallery Wall & Plants",
         "description":   (
             "Warm light pools through sheer curtains and lands on a mess of paint brushes you'll never want to clean up. "
             "The gallery wall tells stories; the trailing pothos reaches toward the window like it knows something you don't. "
@@ -856,7 +922,7 @@ HARDCODED_FALLBACK: dict = {
         "visual_style":  "yellow_creator_flatlay",
         "niche":         "wfh",  # ← NICHE FOR BOARD SELECTION
         "vibe":          "Yellow headphones on MacBook, mustard camera, yellow roses, white linen, golden sidelight",
-        "title":         "This Is What a Creative Morning Actually Looks Like",
+        "title":         "Creator Desk Setup Ideas: Yellow Aesthetic Flat Lay Workspace Inspiration",
         "description":   (
             "Mustard yellow against cool silver — the headphones rest exactly where inspiration left them. "
             "Roses because why not. Camera because always. "
@@ -991,15 +1057,24 @@ CREATIVE DIRECTION
    - Every detail must push toward editorial magazine quality.
    - MUST end with: 4K ultra HD, photorealistic, highly detailed, award-winning photography
 
-3. COPYWRITING — ELITE TIER
-   - Title: An emotional discovery moment. NOT a description. "Would I stop scrolling for this?"
-     Examples:
-       "This Room Made Me Forget I Had Anywhere To Be"
-       "I Didn't Know A Morning Could Look Like This"
-       "This Setup Is Making Me Rethink Everything"
-   - Description: 2-3 sentences. Pure sensory and emotional pull.
-     Mention one specific texture, one specific light quality, one specific feeling.
-     Never describe the image. Make the reader FEEL the image.
+3. COPYWRITING — PINTEREST SEO FIRST (Pinterest is a SEARCH engine, not a feed)
+   - Title: a SEARCHABLE description of THIS exact image — this is what ranks the pin
+     and brings impressions. Rules:
+     * START with the primary keyword phrase a real person types into Pinterest search
+       (build it from the Label + Tags above, e.g. "Cozy Bedroom Ideas",
+       "Small Balcony Garden Decor", "Boho Living Room Inspiration").
+     * Name the ACTUAL subject in the image (room/space/object) + its style/mood words.
+     * Weave in 2-3 genuine search phrases. Keyword-rich beats clever, every time.
+     * NO clickbait. NO first person. BANNED patterns: "I Didn't Know...",
+       "This Made Me...", "You Won't Believe...", "Stop Scrolling", or anything
+       resembling them. Those titles do not rank and must never be used.
+     * Every title must be unique to this pin's content — never reuse a template.
+     Good shapes (adapt to THIS image, do not copy):
+       "Cozy Bedroom Ideas: Pastel Decor with Fairy Lights & Soft Textures"
+       "Small Balcony Garden Ideas — Boho Corner with Hanging Plants"
+   - Description: 2-3 sentences. Sensory pull (one texture, one light quality,
+     one feeling) AND naturally weave 2-3 search keywords from the title/tags so
+     the pin ranks for them. Make the reader FEEL the image — in searchable words.
 
 4. TAGS: CamelCase, no hashtag symbol, exactly 5, SEO-optimized for Pinterest discoverability.
    Base tags to use/remix: {json.dumps(tags)}
@@ -1012,7 +1087,7 @@ OUTPUT FORMAT (JSON only — no other text before or after)
   "strategy": "<brief name for this specific creative direction>",
   "visual_style": "{forced_style_key}",
   "vibe": "<1-line art direction mood summary, max 80 chars>",
-  "title": "<emotionally charged curiosity hook, max 90 chars>",
+  "title": "<SEO keyword title describing THIS image, starts with primary search phrase, max 90 chars>",
   "description": "<sensory lifestyle copy, 2-3 sentences, zero products/CTAs/prices, max 380 chars>",
   "tags": ["<Tag1>", "<Tag2>", "<Tag3>", "<Tag4>", "<Tag5>"],
     "board_keywords": ["<kw1>", "<kw2>", "<kw3>", "<kw4>"],
@@ -1053,6 +1128,127 @@ def _validate(result: dict, account_key: str) -> None:
         result["visual_prompt"] = vp.rstrip(", ") + ", 4K ultra HD, photorealistic, highly detailed, award-winning photography"
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# SEO TITLES + ANTI-REPEAT GUARD (owner's complaint, 30 Oct 2026)
+# Purana system prompt me clickbait EXAMPLES de raha tha ("I Didn't Know A
+# Morning Could Look Like This") — LLM unhi ko copy karta tha, aur no-LLM
+# fallback ek hi style par hamesha ek hi title deta tha. Pinterest ek SEARCH
+# engine hai: title keyword-rich + image se related + har pin ka unique
+# hona chahiye, tabhi rank/impressions aayenge.
+# ══════════════════════════════════════════════════════════════════════════════
+import zlib
+
+_TITLE_HISTORY_PATH = os.path.join("data", "title_history.json")
+_TITLE_HISTORY_KEEP = 40
+_CLICKBAIT_RE = re.compile(
+    r"^(i didn'?t know|i did not know|this .{0,40}made me|you won'?t believe|"
+    r"stop scrolling|this is what .{0,30}actually looks like|"
+    r"this .{0,30}changed how i think)",
+    re.IGNORECASE,
+)
+
+
+def _humanize_keyword(raw: str) -> str:
+    """'CozyBedroom' / 'cozy_bedroom' / 'cozy bedroom' → 'Cozy Bedroom'."""
+    s = str(raw or "").strip()
+    s = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", s)          # CamelCase split
+    s = s.replace("_", " ").replace("-", " ").replace("#", "")
+    words = [w for w in s.split() if w]
+    return " ".join(w.capitalize() if w.lower() not in ("a", "the", "of", "with", "for") or i == 0 else w.lower()
+                    for i, w in enumerate(words))
+
+
+def _seo_title(label: str, tags: list, niche: str = "", seed: int = 0) -> str:
+    """
+    Deterministic keyword title built from the pin's OWN row data.
+    Label khud keyword-rich hota hai ('Dreamy Pastel Garden Bedroom');
+    tags/niche se doosra search phrase joda jata hai. Templates seed se
+    rotate hote hain taaki lagatar pins ke title-shapes bhi na takrayen.
+    """
+    label = " ".join(str(label or "").split()) or "Cozy Home Decor"
+    kws = []
+    for t in (tags or []):
+        h = _humanize_keyword(t)
+        if h and h.lower() not in label.lower() and h not in kws:
+            kws.append(h)
+    niche_kw = _humanize_keyword(str(niche or "").split(",")[0])
+    if niche_kw and niche_kw.lower() not in label.lower() and niche_kw not in kws:
+        kws.append(niche_kw)
+    kw1 = kws[0] if len(kws) > 0 else "Aesthetic"
+    kw2 = kws[1] if len(kws) > 1 else "Home Decor"
+    templates = [
+        f"{label} Ideas: {kw1} Inspiration for Your Home",
+        f"{kw1} {label} — {kw2} Decor Ideas & Inspiration",
+        f"{label}: {kw1} Style Ideas You'll Want to Save",
+        f"Best {label} Ideas with {kw1} Details",
+        f"{kw1} {label} Inspiration — Cozy {kw2} Vibes",
+    ]
+    title = templates[abs(seed) % len(templates)]
+    title = re.sub(r"\b(\w+) \1\b", r"\1", title, flags=re.IGNORECASE)  # 'Decor Decor' → 'Decor'
+    if len(title) > 95:  # Pinterest title limit ~100 chars
+        title = title[:95].rsplit(" ", 1)[0]
+    return title
+
+
+def _load_title_history() -> dict:
+    try:
+        with open(_TITLE_HISTORY_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _title_seen(account_key: str, title: str) -> bool:
+    norm = " ".join(str(title or "").lower().split())
+    seen = _load_title_history().get(account_key, [])
+    return norm in {" ".join(str(t).lower().split()) for t in seen}
+
+
+def _remember_title(account_key: str, title: str) -> None:
+    try:
+        hist = _load_title_history()
+        lst = hist.get(account_key, [])
+        lst.append(title)
+        hist[account_key] = lst[-_TITLE_HISTORY_KEEP:]
+        os.makedirs(os.path.dirname(_TITLE_HISTORY_PATH), exist_ok=True)
+        with open(_TITLE_HISTORY_PATH, "w", encoding="utf-8") as fh:
+            json.dump(hist, fh)
+    except Exception as e:
+        logger.debug(f"title history save skipped: {e}")
+
+
+def _ensure_unique_title(account_key: str, result: dict,
+                         sheet_row: dict = None, niche: str = "") -> dict:
+    """
+    Guard har result par: title clickbait-pattern wala hai YA pichhle
+    {_TITLE_HISTORY_KEEP} titles me repeat hai → usi pin ke row data se
+    SEO title bana kar badal do. Final title history me yaad rakho.
+    """
+    title = str(result.get("title", "")).strip()
+    banned = bool(_CLICKBAIT_RE.match(title))
+    repeat = bool(title) and _title_seen(account_key, title)
+    if banned or repeat or not title:
+        if sheet_row:
+            label = str(sheet_row.get("label", "")).strip()
+            raw_tags = [t.strip() for t in str(sheet_row.get("tags", "")).split(",") if t.strip()]
+            row_niche = niche or str(sheet_row.get("niche_affinity", "")).strip()
+        else:
+            label = _humanize_keyword(result.get("visual_style", "")) or "Cozy Home Decor"
+            raw_tags = result.get("tags", []) or []
+            row_niche = niche or str(result.get("niche", ""))
+        seed = zlib.crc32(f"{account_key}|{label}|{title}".encode("utf-8"))
+        new_title = _seo_title(label, raw_tags, row_niche, seed=seed)
+        logger.warning(
+            f"   [{account_key}] Title guard: {'CLICKBAIT' if banned else 'REPEAT'} "
+            f"title badla → '{new_title}' (purana: '{title[:50]}')"
+        )
+        result["title"] = new_title
+        title = new_title
+    _remember_title(account_key, title)
+    return result
+
+
 def _build_from_style_data(forced_style: str, ratio: str, niche: str, account_key: str = "",
                            sheet_row: dict = None) -> dict:
     """
@@ -1089,26 +1285,24 @@ def _build_from_style_data(forced_style: str, ratio: str, niche: str, account_ke
         tags        = sd["tags"]
         source_log  = "last-resort"
 
-    # ── t2i / visual_prompt: Sheet rotation > sheet_row t2i_base > VISUAL_STYLES ──
-    if account_key:
-        visual_prompt = _get_prompt_for_style(account_key, forced_style).strip().rstrip(", ")
-    elif sheet_row:
+    # ── t2i / visual_prompt: CHOSEN ROW ka apna t2i_base pehle (row rotation me
+    # yahi sahi hai — style ke kisi aur row ka prompt is pin ka nahi hai) ──
+    if sheet_row and str(sheet_row.get("t2i_base", "")).strip():
         visual_prompt = str(sheet_row.get("t2i_base", "")).strip().rstrip(", ")
+    elif account_key:
+        visual_prompt = _get_prompt_for_style(account_key, forced_style).strip().rstrip(", ")
     else:
         visual_prompt = VISUAL_STYLES.get(forced_style, list(VISUAL_STYLES.values())[0])["t2i_base"].strip().rstrip(", ")
 
     if "4K ultra HD" not in visual_prompt:
         visual_prompt += ", 4K ultra HD, photorealistic, highly detailed, award-winning photography"
 
-    # Title variants — rotated by style key hash for variety
-    title_hooks = [
-        f"This {label} Is The Most Saved Aesthetic Right Now",
-        f"I Didn't Know A Room Could Look Like This",
-        f"This {label} Made Me Stop Scrolling Completely",
-        f"The {label} Aesthetic That's Taking Over Pinterest",
-        f"This Corner Changed How I Think About Home",
-    ]
-    title       = title_hooks[hash(forced_style) % len(title_hooks)][:90]
+    # SEO title — is ROW ke apne label/tags/niche se (clickbait templates
+    # 30 Oct 2026 ko hata diye gaye; har row ka title usi ki content se banta hai)
+    title = _seo_title(
+        label, tags, niche,
+        seed=zlib.crc32(f"{account_key}|{forced_style}|{label}".encode("utf-8")),
+    )
     description = desc[:380]
     alt_text    = f"Aesthetic {label} — Pinterest viral lifestyle photography, ultra-detailed"[:200]
 
@@ -1195,8 +1389,7 @@ def _call_groq_sync(prompt: str) -> str:
             )
             return response.choices[0].message.content
         except Exception as e:
-            err_str = str(e)
-            if "429" in err_str or "rate" in err_str.lower():
+            if _is_rate_limit_error(e):
                 if attempt == 1:
                     logger.warning(
                         "   Groq 429 (OTPM) — waiting 60s for the per-minute "
@@ -1207,6 +1400,17 @@ def _call_groq_sync(prompt: str) -> str:
                 raise RuntimeError(f"Groq rate-limited (429) — aborting: {e}") from e
             raise
 
+def _is_rate_limit_error(e: Exception) -> bool:
+    """True sirf ASLI 429 par. (Purana bug: `"rate" in str(e).lower()` —
+    'Failed to **generate** JSON' wale 400 ko bhi rate-limit bata deta tha,
+    kyunki 'generate' me 'rate' chhupa hai. Isi liye raat ko 400 wala error
+    log me '429 RATE LIMIT' bankar HARDCODED_FALLBACK par girta tha.)"""
+    if getattr(e, "status_code", None) == 429:
+        return True
+    err = str(e).lower()
+    return "429" in err or "rate_limit" in err or "rate limit" in err
+
+
 def _call_groq_thinking_sync(prompt: str) -> str:
     """V4 — reasoning-model call (gpt-oss-120b), the CMO's ONLY Groq fallback.
 
@@ -1215,29 +1419,55 @@ def _call_groq_thinking_sync(prompt: str) -> str:
     _call_groq_sync is no longer part of the CMO chain. Same JSON contract
     as before: returns raw text, callers _extract_json + _validate.
     Rate limits are normalised to RuntimeError so the caller follows the
-    established 429 → HARDCODED_FALLBACK path."""
+    established 429 → HARDCODED_FALLBACK path.
+
+    Raat wala fix (30 Oct 2026): Gemini raat ko peak par rehta hai, isliye
+    ye raasta pakka chalna chahiye —
+      * max_tokens 4096 (reasoning budget alag se khata hai; 1500 par JSON
+        aadha kat kar Groq 400 json_validate_failed deta tha)
+      * reasoning_effort=medium (reasoning ko bandish me rakho)
+      * json_validate_failed aaye toh EK retry BINA strict JSON mode ke —
+        _extract_json prose ke beech se bhi JSON nikaal leta hai.
+    """
     if not _groq_client:
         raise ValueError("GROQ_API_KEY not configured.")
-    try:
-        response = _groq_client.chat.completions.create(
-            model=GROQ_THINKING_MODEL,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user",   "content": prompt},
-            ],
-            temperature=0.70,
-            max_tokens=GROQ_THINKING_MAX_TOKENS,
-            response_format={"type": "json_object"},
-        )
-    except Exception as e:
-        err_str = str(e)
-        if "429" in err_str or "rate" in err_str.lower():
-            raise RuntimeError(f"Thinking model rate-limited (429): {e}") from e
-        raise
-    content = response.choices[0].message.content
-    if not content:
-        raise RuntimeError("Thinking model returned empty content (reasoning budget exhausted).")
-    return content
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user",   "content": prompt},
+    ]
+    last_err = None
+    for attempt, strict_json in ((1, True), (2, False)):
+        try:
+            kwargs = dict(
+                model=GROQ_THINKING_MODEL,
+                messages=messages,
+                temperature=0.70,
+                max_tokens=GROQ_THINKING_MAX_TOKENS,
+                reasoning_effort="medium",
+            )
+            if strict_json:
+                kwargs["response_format"] = {"type": "json_object"}
+            response = _groq_client.chat.completions.create(**kwargs)
+        except Exception as e:
+            last_err = e
+            if _is_rate_limit_error(e):
+                raise RuntimeError(f"Thinking model rate-limited (429): {e}") from e
+            err = str(e).lower()
+            if attempt == 1 and ("json_validate_failed" in err or "failed to generate json" in err):
+                logger.warning(
+                    "   Thinking JSON validation failed — retrying once "
+                    "WITHOUT strict JSON mode (extractor will find the JSON)."
+                )
+                continue
+            raise
+        content = response.choices[0].message.content
+        if content:
+            return content
+        last_err = RuntimeError("Thinking model returned empty content.")
+        if attempt == 1:
+            logger.warning("   Thinking returned empty content — retrying once without strict JSON mode.")
+            continue
+    raise RuntimeError(f"Thinking model failed after retries: {last_err}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN ORCHESTRATION — Sequential rotation per account
@@ -1273,7 +1503,7 @@ def _call_cmo_for_account(account_key: str, metrics: dict,
 
         trend_result = call_trend_cmo(account_key, boards, trends)
         if trend_result:
-            return trend_result
+            return _ensure_unique_title(account_key, trend_result)
     except Exception as trend_error:
         logger.warning(
             "[%s] Trend path failed; using regular flow: %s: %s",
@@ -1284,14 +1514,22 @@ def _call_cmo_for_account(account_key: str, metrics: dict,
 
     ratio        = _pick_ratio()
     profile      = _ACCOUNT_PROFILES[account_key]
-    forced_style = _get_next_style(account_key)   # ← STYLE ROTATION ENGINE
 
     # ══════════════════════════════════════════════════════════════════════════
-    # STEP 1: Fetch full content row from Prompts_Master Sheet
-    # sheet_row IS the content — label, description, t2i_base, niche, tags all from here.
-    # VISUAL_STYLES is only checked if Sheet is completely unavailable.
+    # STEP 1: ROW ROTATION — sheet ki agli row hi is pin ka content hai.
+    # Row ki style_key sirf ek identifier/metadata hai; usi row ki label,
+    # description, tags aur niche is pin ke title/description/hashtags
+    # banane ke kaam aayenge. (Owner's model, 30 Oct 2026)
+    # Sheets down ho toh purani style-rotation emergency fallback hai.
     # ══════════════════════════════════════════════════════════════════════════
-    sheet_row = _get_sheet_row_for_style(account_key, forced_style)
+    sheet_row, _row_pos, _row_total = _get_next_row(account_key)
+    if sheet_row:
+        forced_style = str(sheet_row.get("style_key", "")).strip() or "sheet_row"
+        sheet_prompt = str(sheet_row.get("t2i_base", "")).strip()
+    else:
+        forced_style = _get_next_style(account_key)   # emergency only
+        sheet_row    = _get_sheet_row_for_style(account_key, forced_style)
+        sheet_prompt = _get_prompt_for_style(account_key, forced_style)
 
     # ── Niche: always from sheet_row first ────────────────────────────────────
     if sheet_row:
@@ -1305,10 +1543,6 @@ def _call_cmo_for_account(account_key: str, metrics: dict,
         niche_list = VISUAL_STYLES.get(forced_style, {}).get("niche_affinity", ["default"])
 
     niche = random.choice(niche_list) if niche_list else "default"
-
-    # ── t2i_base prompt: Sheet rotation (multiple variants) → hardcoded fallback ──
-    # _get_prompt_for_style handles its own rotation tracker per style
-    sheet_prompt = _get_prompt_for_style(account_key, forced_style)
 
     logger.info(f"   [{account_key}] Generating: {forced_style} | niche={niche} | ratio={ratio} | sheet_row={'YES' if sheet_row else 'NO (using hardcoded)'}")
 
@@ -1360,7 +1594,7 @@ def _call_cmo_for_account(account_key: str, metrics: dict,
             result["board_keywords"] = [k for k in result["board_keywords"] if k]
             logger.warning("[CMO] board_keywords missing from LLM output — derived fallback")
         logger.info(f"   [{account_key}] Gemini OK | style={forced_style} | niche={niche}")
-        return result
+        return _ensure_unique_title(account_key, result, sheet_row=sheet_row, niche=niche)
     except Exception as gemini_err:
         logger.error(
             f"   [{account_key}] GEMINI FAILED — "
@@ -1390,10 +1624,12 @@ def _call_cmo_for_account(account_key: str, metrics: dict,
             result["board_keywords"] = [k for k in result["board_keywords"] if k]
             logger.warning("[CMO] board_keywords missing from LLM output — derived fallback")
         logger.info(f"   [{account_key}] Thinking OK | style={forced_style} | niche={niche}")
-        return result
+        return _ensure_unique_title(account_key, result, sheet_row=sheet_row, niche=niche)
     except RuntimeError as rate_err:
+        # RuntimeError yahan sirf tab aata hai jab _is_rate_limit_error ne
+        # ASLI 429 pehchana ho (400/json errors sheet-build par jate hain).
         logger.error(
-            f"   [{account_key}] THINKING 429 RATE LIMIT — "
+            f"   [{account_key}] THINKING RATE LIMITED (real 429) — "
             f"{type(rate_err).__name__}: {rate_err} | "
             f"→ Using HARDCODED_FALLBACK (rate limited)"
         )
@@ -1404,7 +1640,11 @@ def _call_cmo_for_account(account_key: str, metrics: dict,
             f"{type(think_err).__name__}: {think_err} | "
             f"→ Building directly from sheet_row for: {forced_style}"
         )
-        return _build_from_style_data(forced_style, ratio, niche, account_key, sheet_row=sheet_row)
+        return _ensure_unique_title(
+            account_key,
+            _build_from_style_data(forced_style, ratio, niche, account_key, sheet_row=sheet_row),
+            sheet_row=sheet_row, niche=niche,
+        )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # LANGGRAPH NODE
@@ -1429,11 +1669,17 @@ async def node_cmo_mastermind(state: MastermindState) -> dict:
     label = "A1 only" if only_a1 else ("A2 only" if only_a2 else "Both")
     logger.info(f"[Node 2 - CMO] Sequential Rotation v6 | {label} | trigger={trigger}")
 
-    # Log what's coming up next (peek without advancing)
-    if run_a1:
-        logger.info(f"   A1 next style: {_peek_current_style('account_1')}")
-    if run_a2:
-        logger.info(f"   A2 next style: {_peek_current_style('account_2')}")
+    # Log what's coming up next (peek without advancing) — row rotation
+    for _acc, _run in (("account_1", run_a1), ("account_2", run_a2)):
+        if _run:
+            _row, _pos, _tot = _peek_next_row(_acc)
+            if _row:
+                logger.info(
+                    f"   {_acc} next row: [{_pos}/{_tot}] "
+                    f"style={_row.get('style_key', '?')} | {str(_row.get('label', ''))[:44]}"
+                )
+            else:
+                logger.info(f"   {_acc} next style (emergency): {_peek_current_style(_acc)}")
 
     a1_metrics = state.get("a1_raw_analytics", [])
     a2_metrics = state.get("a2_raw_analytics", [])
