@@ -191,6 +191,10 @@ async def fetch_aliexpress_products(niche: str, keyword: str = "") -> dict:
 
 async def _run_inline_blog(imgbb_url: str, cmo: dict, trigger: str) -> str:
     """
+    DEPRECATED — blog pipeline cancelled by the owner (29 Oct 2026).
+    No longer called from the pin flow; kept only so nothing that still
+    imports it breaks. Do not re-wire without the owner's say-so.
+
     Run the 4-node blog pipeline INLINE — before the Pinterest post.
 
     Flow: node_blog_trigger → node_product_researcher → node_blog_writer
@@ -251,17 +255,14 @@ async def publish_next_pin(visual_style: str) -> dict:
     """
     Generate and publish a 100% VIRAL_PIN for the given visual style.
 
-    Full pipeline (when Firebase configured):
-      1. AI image generation (Gemini → OpenRouter → Pollinations)
-      2. Vision AI product research from the generated image
-      3. Blog post written + published to Firebase → blog_url
-      4. Pinterest post via Make.com WITH blog_url as destination link
+    Pipeline:
+      1. Product Router decides this pin's destination (digital product
+         from the Products sheet, or clean/no destination)
+      2. AI image generation (Cloudflare → Replicate → HF → Pollinations)
+      3. Pinterest post via Make.com WITH the routed destination link
 
-    When Firebase is not configured, steps 2–3 are skipped. The LINK GUARD
-    (hold the pin when the blog returns no URL) is OFF by default — it only
-    activates when LINK_GUARD_ENABLED is explicitly set to true/1/yes/on.
-    Keep it off until the Firebase + blog setup is complete; pins then post
-    as before, with or without a blog URL.
+    The old blog pipeline was cancelled by the owner on 29 Oct 2026 —
+    the account sells digital products only.
 
     Args:
         visual_style: one of green_minimalist | sunset_landscape | cozy_architecture | cinematic_retro
@@ -330,39 +331,16 @@ async def publish_next_pin(visual_style: str) -> dict:
 
     logger.info(f"🖼️ [{target_account}] Image ready: {imgbb_url[:60]}...")
 
-    # ── 3. Blog pipeline (Vision AI → Blog Write → Firebase) — BEFORE posting ─
-    trigger   = str(CURRENT_TRIGGER or "account1")
-    blog_enabled = os.getenv("BLOG_ENABLED", "true").lower() == "true"
-    if blog_enabled:
-        blog_url = await _run_inline_blog(imgbb_url=imgbb_url, cmo=cmo, trigger=trigger)
+    # ── 3. Destination ────────────────────────────────────────────────────────
+    # Blog pipeline CANCELLED by the owner (29 Oct 2026): this account sells
+    # digital products only now — no blog posts, no Firebase, no link guard.
+    # A pin's destination is the Product Router's decision (step 1b) or
+    # nothing: pins without a product match post clean, by design.
+    blog_url = ""
+    if destination_url:
+        logger.info(f"🧭 [{target_account}] Destination: product {product_id} → {destination_url}")
     else:
-        logger.info(f"📝 [{target_account}] Blog pipeline DISABLED via BLOG_ENABLED=false")
-        blog_url = ""
-
-    if blog_url:
-        logger.info(f"📝 [{target_account}] Blog URL to pin: {blog_url}")
-    elif destination_url:
-        # V4: a router product destination IS a valid destination — the
-        # guard's premise (no blog URL = no destination) no longer holds.
-        logger.info(f"🧭 [{target_account}] No blog URL — pin will carry the product destination instead")
-    elif blog_enabled and os.getenv("LINK_GUARD_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on"):
-        # ── LINK GUARD ──────────────────────────────────────────────────────
-        # Blog was supposed to provide this pin's destination link but came
-        # back empty. Posting anyway would create a pin that can NEVER earn
-        # an outbound click, so hold the pin; the next scheduled slot retries
-        # the full cycle.
-        logger.error(
-            f"⛔ [{target_account}] LINK GUARD: holding pin — blog pipeline returned "
-            f"no URL, refusing to post without a destination link."
-        )
-        return {
-            "success":   False,
-            "held":      True,
-            "reason":    "Link guard: blog pipeline returned no URL — pin held instead of posting without a destination link.",
-            "image_url": imgbb_url,
-        }
-    else:
-        logger.info(f"📝 [{target_account}] No blog — posting pin without destination link")
+        logger.info(f"🧭 [{target_account}] No product match — posting clean pin (no destination)")
 
     # ── 4. Post to Pinterest via Make.com webhook ─────────────────────────────
     try:
