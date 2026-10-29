@@ -760,14 +760,36 @@ async def _t2i_pollinations(prompt: str, ratio: str) -> Optional[bytes]:
 # Gate FAIL-OPEN hai: Gemini down/429 ho toh image rukti nahi, post hoti
 # hai (raat ke peak par pipeline band karna ilaaj nahi hai).
 # ══════════════════════════════════════════════════════════════════════════════
-_DIET_MAX_CHARS   = 430
-_DIET_MAX_CLAUSES = 10
+_DIET_MAX_CHARS   = 470
+_DIET_MAX_CLAUSES = 11
+
+# Diet SMART hai, andha kataav nahi (owner ki sahi chinta, 30 Oct 2026):
+# prompts me sirf furniture nahi hota — RANG (palette), ROSHNI (light) aur
+# CAMERA wali details aksar prompt ke AAKHIR me hoti hain. Seedha pehle-10
+# wala kataav unhe uda deta. Isliye pehle category-wise sabse achhi clause
+# chun kar rakhi jati hai, phir bheed (object list) kat-ti hai.
+_DIET_LIGHT_RE  = re.compile(
+    r"(light|sunlight|golden hour|backlit|shadow|glow|candlelit|dusk|dawn|"
+    r"kelvin|\d{4}k\b|window light|twilight)", re.IGNORECASE)
+_DIET_COLOR_RE  = re.compile(
+    r"(palette|colou?r|pastel|tones?|hues?|sage|blush|terracotta|ivory|"
+    r"cream|mustard|emerald|monochrome)", re.IGNORECASE)
+_DIET_CAMERA_RE = re.compile(
+    r"(shot on|canon|sony|nikon|lens|\d+mm|f/1\.|depth of field|bokeh|"
+    r"editorial|photography|magazine)", re.IGNORECASE)
 
 
 def _diet_base_prompt(prompt: str, max_chars: int = _DIET_MAX_CHARS,
                       max_clauses: int = _DIET_MAX_CLAUSES) -> str:
-    """Base prompt ko clause-boundary par trim karo (aadha shabd kabhi nahi
-    katega). Kam se kam 3 clauses hamesha rahenge. Duplicate clauses hate."""
+    """
+    Category-aware trim:
+      1) pehle 2 clauses hamesha (subject + hero furniture wahi hote hain)
+      2) LIGHT, COLOR, CAMERA — teeno ki sabse keyword-rich ek-ek clause
+         hamesha bachegi, chahe prompt ke aakhir me hi kyun na ho
+      3) bachi jagah me object clauses apne order me bharenge
+    Output original order me hi rehta hai; duplicates hate; kataav sirf
+    clause-boundary par (aadha phrase kabhi nahi katega).
+    """
     clauses = [c.strip() for c in str(prompt or "").split(",") if c.strip()]
     seen, uniq = set(), []
     for c in clauses:
@@ -775,13 +797,28 @@ def _diet_base_prompt(prompt: str, max_chars: int = _DIET_MAX_CHARS,
         if k not in seen:
             seen.add(k)
             uniq.append(c)
-    kept, total = [], 0
-    for c in uniq:
-        if len(kept) >= 3 and (len(kept) >= max_clauses or total + len(c) > max_chars):
-            break
-        kept.append(c)
-        total += len(c) + 2
-    return ", ".join(kept)
+    if len(uniq) <= 3:
+        return ", ".join(uniq)
+
+    keep = set(range(min(2, len(uniq))))                    # subject + hero
+    for rx in (_DIET_LIGHT_RE, _DIET_COLOR_RE, _DIET_CAMERA_RE):
+        best, best_hits = None, 0
+        for i, c in enumerate(uniq):
+            hits = len(rx.findall(c))
+            if hits > best_hits:
+                best, best_hits = i, hits
+        if best is not None:
+            keep.add(best)
+
+    total = sum(len(uniq[i]) + 2 for i in keep)
+    for i in range(len(uniq)):                              # bheed order me
+        if i in keep:
+            continue
+        if len(keep) >= max_clauses or (len(keep) >= 3 and total + len(uniq[i]) > max_chars):
+            continue
+        keep.add(i)
+        total += len(uniq[i]) + 2
+    return ", ".join(uniq[i] for i in sorted(keep))
 
 
 _GATE_PROMPT = """You are a strict photo-quality inspector for a home-decor Pinterest account.
