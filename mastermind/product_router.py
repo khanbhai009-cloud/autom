@@ -73,17 +73,28 @@ except Exception:  # config not updated yet / import context — use live defaul
         "PRODUCT_DECOR_URL", "https://cozycanvasstudio.gumroad.com/l/ictsf"
     )
 
-ROUTER_ENABLED = os.getenv("PRODUCT_ROUTER_ENABLED", "true").strip().lower() in (
-    "1", "true", "yes", "on",
-)
-ROUTER_THRESHOLD = float(os.getenv("PRODUCT_ROUTER_THRESHOLD", "0.70"))
-ROUTER_LLM_ENABLED = os.getenv("ROUTER_LLM_ENABLED", "true").strip().lower() in (
-    "1", "true", "yes", "on",
-)
-ROUTER_JUDGE_MODEL = os.getenv("ROUTER_JUDGE_MODEL", "openai/gpt-oss-20b")
-ROUTER_UTM_ENABLED = os.getenv("PRODUCT_ROUTER_UTM", "false").strip().lower() in (
-    "1", "true", "yes", "on",
-)
+# Saare switches config.py ke ek section me hain ("SAARE ON/OFF SWITCHES")
+# — wahi se padho. Fallback sirf is liye hai ki ye module akele bhi chal sake.
+try:
+    from config import (
+        PRODUCT_ROUTER_ENABLED as ROUTER_ENABLED,
+        PRODUCT_ROUTER_THRESHOLD as ROUTER_THRESHOLD,
+        PRODUCT_ROUTER_UTM as ROUTER_UTM_ENABLED,
+        ROUTER_JUDGE_MODEL,
+        ROUTER_LLM_ENABLED,
+    )
+except Exception:
+    ROUTER_ENABLED = os.getenv("PRODUCT_ROUTER_ENABLED", "true").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+    ROUTER_THRESHOLD = float(os.getenv("PRODUCT_ROUTER_THRESHOLD", "0.70"))
+    ROUTER_LLM_ENABLED = os.getenv("ROUTER_LLM_ENABLED", "true").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+    ROUTER_JUDGE_MODEL = os.getenv("ROUTER_JUDGE_MODEL", "openai/gpt-oss-20b")
+    ROUTER_UTM_ENABLED = os.getenv("PRODUCT_ROUTER_UTM", "false").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
 PRODUCTS_SHEET_TAB = "Products"
 ROUTER_LOG_TAB = "Product_Router_Log"
 _PRODUCTS_CACHE_TTL = 900  # 15 min — a new sheet row goes live within this

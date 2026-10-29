@@ -15,7 +15,13 @@ import logging
 from datetime import date
 from typing import Optional
 
-from config import BLOG_BASE_URL, FIREBASE_CREDS_JSON
+# Legacy blog module — reads its own env (blog config was removed from
+# config.py when the blog pipeline was cancelled; this stays self-contained
+# so the old manual dashboard endpoints keep working if ever called).
+import os
+
+FIREBASE_CREDS_JSON = os.getenv("FIREBASE_CREDS_JSON", "")
+BLOG_BASE_URL = os.getenv("BLOG_BASE_URL", "https://pinteresto.vercel.app")
 
 logger = logging.getLogger(__name__)
 

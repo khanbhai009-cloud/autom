@@ -2,6 +2,29 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
+# ══════════════════════════════════════════════════════════════════════════════
+# SAARE ON/OFF SWITCHES — EK HI JAGAH (owner ke liye)
+# Har switch Render ke Environment me isi naam se badla ja sakta hai.
+# Kuch set na karo toh neeche wala DEFAULT chalega — aur defaults hi sahi
+# setting hain. File-file me dhundne ki zaroorat nahi: sab yahi hai.
+# ══════════════════════════════════════════════════════════════════════════════
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+# Product Router — pin par sahi product ka link lagana (match na ho toh
+# pin bina link ke jata hai, zabardasti link NAHI lagta)
+PRODUCT_ROUTER_ENABLED = _env_bool("PRODUCT_ROUTER_ENABLED", True)   # pura router ON/OFF
+ROUTER_LLM_ENABLED     = _env_bool("ROUTER_LLM_ENABLED", True)       # ambiguous pin par AI judge ON/OFF
+PRODUCT_ROUTER_UTM     = _env_bool("PRODUCT_ROUTER_UTM", False)      # link ke peeche ?utm=... jodna (default OFF = saaf link)
+PRODUCT_ROUTER_THRESHOLD = float(os.getenv("PRODUCT_ROUTER_THRESHOLD", "0.70"))  # judge ko kitna pakka hona chahiye (0.70 = 70%)
+ROUTER_JUDGE_MODEL     = os.getenv("ROUTER_JUDGE_MODEL", "openai/gpt-oss-20b")   # judge wala model
+
+# Image Mood Engine — har image ke prompt ko mood/story se enhance karna
+IMAGE_MOOD_ENGINE = _env_bool("IMAGE_MOOD_ENGINE", True)             # ON = har baar naya mood/look; OFF = purana v4 style
+
 GROQ_API_KEY          = os.getenv("GROQ_API_KEY")
 CEREBRAS_API_KEY      = os.getenv("CEREBRAS_API_KEY")
 OPENROUTER_API_KEY    = os.getenv("OPENROUTER_API_KEY")
@@ -42,9 +65,9 @@ GEMINI_IMAGE_MODEL      = os.getenv(
     "gemini-3.8-flash",
 )
 
-# ── Blog — Firebase (V4 Addition) ────────────────────────────────────────────
-FIREBASE_CREDS_JSON = os.getenv("FIREBASE_CREDS_JSON", "")
-BLOG_BASE_URL       = os.getenv("BLOG_BASE_URL", "https://pinteresto.vercel.app")
+# (Blog/Firebase config yaha se HATA diya gaya hai — blog pipeline band hai.
+#  Do purane tools modules apni env khud padhte hain; pin pipeline me blog
+#  ka koi role nahi bacha.)
 
 # ── Pinteresto V4 — Product Router + Mastermind thinking ─────────────────────
 # Router destinations (mastermind/product_router.py). Env-overridable so a
@@ -52,8 +75,9 @@ BLOG_BASE_URL       = os.getenv("BLOG_BASE_URL", "https://pinteresto.vercel.app"
 PRODUCT_GARDEN_URL = os.getenv("PRODUCT_GARDEN_URL", "https://cozycanvasstudio.gumroad.com/l/nmkawd")
 PRODUCT_DECOR_URL  = os.getenv("PRODUCT_DECOR_URL",  "https://cozycanvasstudio.gumroad.com/l/ictsf")
 # Mastermind "thinking" fallback: Groq's reasoning model (free tier
-# 30 RPM / 1,000 RPD per official rate-limit docs, Oct 2026). Used by the
-# CMO after the fast qwen model, before any hardcoded fallback.
+# 30 RPM / 1,000 RPD per official rate-limit docs, Oct 2026). CMO chain:
+# Gemini -> ye thinking model -> hardcoded fallback. (Qwen CMO me nahi
+# hai — woh sirf task execution me hai.)
 GROQ_THINKING_MODEL = os.getenv("GROQ_THINKING_MODEL", "openai/gpt-oss-120b")
 # Image fallback (tools/image_creator.py) — Replicate FLUX schnell,
 # $0.003/image; layer stays OFF until this token is set.
