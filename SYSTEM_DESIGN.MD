@@ -143,10 +143,13 @@ Around generation:
   truncation: the "4K… razor-sharp focus…" tail can never be cut off
   (an earlier 750-char end-truncation silently removed it and softened
   every image).
-- **Vision gate** — after generation, Gemini Vision checks for hybrid
+- **Vision gate** — after generation, a vision judge checks for hybrid
   furniture, melted geometry, chaotic rooms, distorted people. Fail →
   one retry with an even tighter diet prompt. Fail again → the pin is
-  skipped. The gate is **fail-open**: a judge outage never blocks posting.
+  skipped. Judges form a **chain** — Gemini key 1 → Gemini key 2 (separate
+  quota) → Groq Vision (llama-4-scout, a different provider, so a Gemini
+  peak-hour outage doesn't blind the gate) — and the gate is **fail-open**
+  only if *every* judge is down: an outage never blocks posting.
   Switch: `IMAGE_VISION_GATE`.
 
 ## 8. Trend feature

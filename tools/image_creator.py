@@ -831,61 +831,107 @@ Set "ok": false ONLY for clear defects:
 - badly distorted people or faces
 Normal cozy styling, plants, warm light and decor objects are FINE. When unsure, ok=true."""
 
-_gate_client = None
+_gate_clients: dict = {}
 
 
-def _get_gate_client():
-    global _gate_client
-    if _gate_client is None:
+def _get_gate_client(api_key: str):
+    """Per-key Gemini client cache (key 1 aur key 2 ke alag quota hote hain)."""
+    if api_key not in _gate_clients:
         try:
             from google import genai
-            key = _GEMINI_API_KEY_CFG or os.environ.get("GEMINI_API_KEY", "")
-            if not key:
-                return None
-            _gate_client = genai.Client(api_key=key)
+            _gate_clients[api_key] = genai.Client(api_key=api_key)
         except Exception:
             return None
-    return _gate_client
+    return _gate_clients[api_key]
+
+
+def _parse_gate_verdict(raw: str, judge: str) -> tuple:
+    m = re.search(r"\{.*\}", raw or "", re.S)
+    data = json.loads(m.group(0)) if m else {}
+    ok = bool(data.get("ok", True))
+    issues = ", ".join(str(i) for i in (data.get("issues") or []))
+    return ok, f"[{judge}] " + (issues or ("clean" if ok else "defects found"))
+
+
+def _gemini_judge(api_key: str, image_bytes: bytes) -> str:
+    from google.genai import types
+    client = _get_gate_client(api_key)
+    if client is None:
+        raise RuntimeError("Gemini client nahi bana")
+    model = os.environ.get("VISION_GATE_MODEL") or _GEMINI_MODEL_CFG or "gemini-2.5-flash"
+    resp = client.models.generate_content(
+        model=model,
+        contents=[
+            _GATE_PROMPT,
+            types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+        ],
+        config=types.GenerateContentConfig(
+            temperature=0.0, max_output_tokens=300,
+            response_mime_type="application/json",
+        ),
+    )
+    return resp.text or ""
+
+
+def _groq_judge(image_bytes: bytes) -> str:
+    """Teesra judge — Groq Vision (llama-4-scout). Provider hi alag hai:
+    jis raat Gemini peak par hota hai, Groq aaram se chalta hai.
+    (Model kabhi free tier se hate toh ye step khud skip ho jayega —
+    exception upar jaakar agla raasta lega, kuch rukega nahi.)"""
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    if not groq_key:
+        raise RuntimeError("GROQ_API_KEY not configured")
+    from groq import Groq
+    gk = os.environ.get("GROQ_API_KEY", "")
+    client = Groq(api_key=gk)
+    model = os.environ.get("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": _GATE_PROMPT},
+                {"type": "image_url",
+                 "image_url": {"url": "data:image/jpeg;base64,"
+                                      + base64.b64encode(image_bytes).decode()}},
+            ],
+        }],
+        temperature=0.0,
+        max_tokens=300,
+    )
+    return resp.choices[0].message.content or ""
 
 
 async def _vision_gate(image_bytes: bytes) -> tuple:
-    """(ok, reason). Koi bhi error → (True, 'fail-open') — judge ki outage
-    par pipeline nahi rukegi."""
+    """
+    Judge CHAIN — pehle jo judge jinda mile, usi ka faisla:
+      1) Gemini key 1 → 2) Gemini key 2 (alag quota) → 3) Groq Vision
+    Teeno down hon TAB fail-open (True) — judge ki outage par pipeline
+    nahi rukegi, par ek judge ke peak par hone se gate andha nahi hoga.
+    """
     if not VISION_GATE_ENABLED:
         return True, "gate off"
-    client = _get_gate_client()
-    if client is None:
-        return True, "no Gemini key — gate skipped (fail-open)"
-    model = os.environ.get("VISION_GATE_MODEL") or _GEMINI_MODEL_CFG or "gemini-2.5-flash"
 
-    def _call() -> str:
-        from google.genai import types
-        resp = client.models.generate_content(
-            model=model,
-            contents=[
-                _GATE_PROMPT,
-                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
-            ],
-            config=types.GenerateContentConfig(
-                temperature=0.0, max_output_tokens=300,
-                response_mime_type="application/json",
-            ),
-        )
-        return resp.text or ""
+    key1 = _GEMINI_API_KEY_CFG or os.environ.get("GEMINI_API_KEY", "")
+    key2 = os.environ.get("GEMINI_API_KEY_2", "")
+    judges = []
+    if key1:
+        judges.append(("Gemini#1", lambda: _gemini_judge(key1, image_bytes)))
+    if key2 and key2 != key1:
+        judges.append(("Gemini#2", lambda: _gemini_judge(key2, image_bytes)))
+    judges.append(("GroqVision", lambda: _groq_judge(image_bytes)))
 
-    try:
-        raw = await asyncio.to_thread(_call)
-        m = re.search(r"\{.*\}", raw, re.S)
-        data = json.loads(m.group(0)) if m else {}
-        ok = bool(data.get("ok", True))
-        issues = ", ".join(str(i) for i in (data.get("issues") or []))
-        return ok, issues or ("clean" if ok else "defects found")
-    except Exception as e:
-        logger.warning(
-            f"👁️ [VisionGate] check fail hua ({type(e).__name__}: {str(e)[:120]}) "
-            f"— fail-open, image post hogi"
-        )
-        return True, "gate error — fail-open"
+    for name, fn in judges:
+        try:
+            raw = await asyncio.to_thread(fn)
+            return _parse_gate_verdict(raw, name)
+        except Exception as e:
+            logger.warning(
+                f"👁️ [VisionGate] {name} judge fail ({type(e).__name__}: "
+                f"{str(e)[:100]}) — agla judge try hoga"
+            )
+    logger.warning("👁️ [VisionGate] Saare judge down — fail-open, image bina check post hogi")
+    return True, "all judges down — fail-open"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
