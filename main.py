@@ -5,6 +5,7 @@ import os
 import random
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +27,18 @@ from tools.visions_ai import (
 from sheets.trends import init_trend_tabs
 from tools.trend_feeder import trend_feeder_loop
 from trend_routes import router as trend_router
+from product_routes import router as kits_router
+
+# ── Display timezone ─────────────────────────────────────────────────────────
+# The scheduler itself stays on America/New_York (pin slots target the US
+# audience), but every time SHOWN to the owner (app/dashboard) is Indian
+# time — he runs this from India. Convert properly via astimezone: the old
+# "+5:30 on EST" hack was wrong by an hour during US daylight saving.
+_IST = ZoneInfo("Asia/Kolkata")
+
+def _now_ist_str() -> str:
+    """Current time in India, owner-readable: '10:20 PM'."""
+    return datetime.now(_IST).strftime("%I:%M %p")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
@@ -117,7 +130,7 @@ async def mastermind_scheduled_job(trigger: str):
         return
     state["mastermind_running"] = True
     state["stop_requested"] = False
-    state["mastermind_last_run"] = datetime.now().strftime("%H:%M")
+    state["mastermind_last_run"] = _now_ist_str()
     try:
         logger.info(f"🧠 Mastermind Triggered: {trigger}")
         result = await run_mastermind(trigger=trigger)
@@ -199,7 +212,7 @@ def schedule_daily_pins():
                 id=f"pin_a1_{a1_idx + 1}",
                 kwargs={"trigger": f"scheduled-account1-{pin_type}"},
             )
-            logger.info(f"📌 [Acc1 #{a1_idx+1}] {run_time.strftime('%I:%M %p')} EST (India: {(run_time + timedelta(hours=5, minutes=30)).strftime('%I:%M %p')}) → {pin_type}")
+            logger.info(f"📌 [Acc1 #{a1_idx+1}] {run_time.strftime('%I:%M %p')} US (India: {run_time.astimezone(_IST).strftime('%I:%M %p')}) → {pin_type}")
             a1_idx   += 1
             scheduled += 1
 
@@ -210,7 +223,7 @@ def schedule_daily_pins():
                 id=f"pin_a2_{a2_idx + 1}",
                 kwargs={"trigger": f"scheduled-account2-{pin_type}"},
             )
-            logger.info(f"📌 [Acc2 #{a2_idx+1}] {run_time.strftime('%I:%M %p')} EST (India: {(run_time + timedelta(hours=5, minutes=30)).strftime('%I:%M %p')}) → {pin_type}")
+            logger.info(f"📌 [Acc2 #{a2_idx+1}] {run_time.strftime('%I:%M %p')} US (India: {run_time.astimezone(_IST).strftime('%I:%M %p')}) → {pin_type}")
             a2_idx   += 1
             scheduled += 1
 
@@ -298,6 +311,7 @@ async def lifespan(app: FastAPI):
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(title="Pinteresto Mastermind", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(trend_router)
+app.include_router(kits_router)
 app.add_middleware(CORSMiddleware, allow_origins=["https://pinteresto.vercel.app", "https://autom-a6tl.onrender.com"], allow_methods=["*"], allow_headers=["*"])
 from security import ApiKeyMiddleware
 app.add_middleware(ApiKeyMiddleware)
@@ -346,7 +360,13 @@ async def get_next_pins():
 async def get_mastermind_stats():
     jobs = scheduler.get_jobs()
     scheduled_slots = [
-        {"id": j.id, "next_run": j.next_run_time.strftime("%I:%M %p EST") if j.next_run_time else "—"}
+        {
+            "id": j.id,
+            # Owner-facing time is IST ("10:20 PM"); the US time stays
+            # available for reference because slots are planned on US time.
+            "next_run": j.next_run_time.astimezone(_IST).strftime("%I:%M %p") if j.next_run_time else "—",
+            "next_run_us": j.next_run_time.strftime("%I:%M %p %Z") if j.next_run_time else "—",
+        }
         for j in jobs if j.id.startswith("pin_")
     ]
     return {
@@ -410,7 +430,7 @@ async def _run_blog_pipeline(account: str):
 
     state["blog_running"]      = True
     state["blog_last_account"] = account
-    state["blog_last_run"]     = datetime.now().strftime("%H:%M")
+    state["blog_last_run"]     = _now_ist_str()
 
     try:
         from agent import LAST_POSTED_IMAGE_URL
@@ -571,7 +591,7 @@ async def _force_pin_job(account: str):
 
     trigger = f"force-pin-{account}"
     state["mastermind_running"] = True
-    state["mastermind_last_run"] = datetime.now().strftime("%H:%M")
+    state["mastermind_last_run"] = _now_ist_str()
     try:
         logger.info(f"⚡ [Force Pin] START — {account} (blog limit bypassed)")
         result = await run_mastermind(trigger=trigger, force_blog=True)
