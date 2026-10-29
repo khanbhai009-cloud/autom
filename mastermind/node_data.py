@@ -1,79 +1,20 @@
 """
-mastermind/node_data.py — Node 1: Data Intelligence
-Fetches last-7-day Pinterest analytics from two isolated Google Sheet tabs.
-Accounts are treated as completely separate data sources — no mixing.
-Falls back to a "Stagnant" analytics profile on any failure; never crashes.
+mastermind/node_data.py — REMOVED (owner's call, 30 Oct 2026).
+
+This was Node 1 "Data Intelligence", which fetched Pinterest analytics
+rows from the Analytics_Log / Analytics_logs2 sheet tabs for the CMO.
+
+Why it is gone:
+  - Pinterest analytics cannot be fed into this system — there is no
+    reliable way to supply those numbers, and the tabs only ever held
+    stale, hand-filled data.
+  - Direction for the system comes from Pinterest Trends (the trend
+    system) + the Sheets style library, not from lagging analytics.
+  - The CMO never actually used the fetched rows: its prompt is built
+    from the sheet style row, boards and trends. The node only produced
+    WorksheetNotFound errors and a misleading "Fallback" flag on every run.
+
+The graph no longer references this module (see mastermind/graph.py).
+The state fields a1_raw_analytics / a2_raw_analytics remain in
+mastermind/state.py for shape compatibility and stay empty.
 """
-import logging
-from mastermind.state import MastermindState
-from sheets import get_analytics_rows
-
-logger = logging.getLogger(__name__)
-
-STAGNANT_PROFILE = [
-    {
-        "Date": "fallback",
-        "Impressions": 0,
-        "Clicks": 0,
-        "Outbound Clicks": 0,
-        "Saves": 0,
-    }
-]
-
-
-def node_data_intelligence(state: MastermindState) -> dict:
-    """
-    Node 1 — Data Intelligence.
-    Fetches 7-day analytics for Account 1 (Analytics_Log) and
-    Account 2 (Analytics_logs2) independently.
-    On gspread failure → sets fallback_triggered=True and injects STAGNANT_PROFILE.
-    """
-    logger.info("📊 [Node 1 — Data Intelligence] Fetching analytics for both accounts...")
-    fallback_triggered = state.get("fallback_triggered", False)
-
-    # ── Account 1 ─────────────────────────────────────────────────────────────
-    try:
-        a1_rows = get_analytics_rows("Analytics_Log", days=7)
-        if not a1_rows:
-            logger.warning("⚠️ [Acc 1] Analytics_Log returned 0 rows — injecting Stagnant profile.")
-            a1_rows = STAGNANT_PROFILE
-            fallback_triggered = True
-        else:
-            logger.info(f"✅ [Acc 1] {len(a1_rows)} analytics rows fetched.")
-    except Exception as e:
-        logger.error(
-            f"❌ [Acc 1] Analytics fetch FAILED — "
-            f"{type(e).__name__}: {e} | "
-            f"LIKELY CAUSE: GOOGLE_CREDS_JSON or SPREADSHEET_ID secret not set in Replit Secrets"
-        )
-        a1_rows = STAGNANT_PROFILE
-        fallback_triggered = True
-
-    # ── Account 2 ─────────────────────────────────────────────────────────────
-    try:
-        a2_rows = get_analytics_rows("Analytics_logs2", days=7)
-        if not a2_rows:
-            logger.warning("⚠️ [Acc 2] Analytics_logs2 returned 0 rows — injecting Stagnant profile.")
-            a2_rows = STAGNANT_PROFILE
-            fallback_triggered = True
-        else:
-            logger.info(f"✅ [Acc 2] {len(a2_rows)} analytics rows fetched.")
-    except Exception as e:
-        logger.error(
-            f"❌ [Acc 2] Analytics fetch FAILED — "
-            f"{type(e).__name__}: {e} | "
-            f"LIKELY CAUSE: GOOGLE_CREDS_JSON or SPREADSHEET_ID secret not set in Replit Secrets"
-        )
-        a2_rows = STAGNANT_PROFILE
-        fallback_triggered = True
-
-    logger.info(
-        f"📊 [Node 1 — Done] A1: {len(a1_rows)} rows | A2: {len(a2_rows)} rows | "
-        f"Fallback: {fallback_triggered}"
-    )
-
-    return {
-        "a1_raw_analytics": a1_rows,
-        "a2_raw_analytics": a2_rows,
-        "fallback_triggered": fallback_triggered,
-    }
