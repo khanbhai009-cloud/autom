@@ -11,7 +11,11 @@ import json
 import logging
 import time
 
-from config import FIREBASE_CREDS_JSON
+# Legacy module — reads its own env (blog/Firebase config was removed from
+# config.py when the blog pipeline was cancelled).
+import os
+
+FIREBASE_CREDS_JSON = os.getenv("FIREBASE_CREDS_JSON", "")
 
 logger = logging.getLogger(__name__)
 
