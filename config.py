@@ -25,6 +25,10 @@ ROUTER_JUDGE_MODEL     = os.getenv("ROUTER_JUDGE_MODEL", "openai/gpt-oss-20b")  
 # Image Mood Engine — har image ke prompt ko mood/story se enhance karna
 IMAGE_MOOD_ENGINE = _env_bool("IMAGE_MOOD_ENGINE", True)             # ON = har baar naya mood/look; OFF = purana v4 style
 
+# Image Vision Gate — bani hui image ko post se pehle Gemini Vision se
+# check karna (hybrid furniture / pighli shapes pakdo); fail par ek retry
+IMAGE_VISION_GATE = _env_bool("IMAGE_VISION_GATE", True)             # ON = har image pehle check hogi; OFF = seedha post
+
 GROQ_API_KEY          = os.getenv("GROQ_API_KEY")
 CEREBRAS_API_KEY      = os.getenv("CEREBRAS_API_KEY")
 OPENROUTER_API_KEY    = os.getenv("OPENROUTER_API_KEY")

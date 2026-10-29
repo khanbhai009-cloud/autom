@@ -19,6 +19,7 @@ REQUIRED_SHEETS: dict[str, list] = {
     "Vision_Tracker":  ["date", "file_name", "style_key", "account", "status", "timestamp"],
     # Analytics tabs intentionally NOT required — analytics was removed
     # from the pipeline (owner, 30 Oct 2026); direction comes from Trends.
+    "Schedule_State":  ["key", "value"],
     # V4 Product Router — owner-managed product registry + decision log.
     # Owner workflow: list the product on Gumroad, then add ONE row here
     # (url + description/guide + keywords). The router reads this tab.
