@@ -454,9 +454,15 @@ def route_product(strategy: dict, account_key: str = "account_1") -> dict:
                 )
 
         # No clear fit — post clean. Designed outcome for scenery/seasonal pins.
+        # NOTE: keep this 3.11-safe — no nested f-strings (production runs
+        # python:3.11-slim; nested same-quote f-string expressions are a
+        # SyntaxError there even though Python 3.12 accepts them).
+        score_detail = " / ".join(
+            "{} {}".format(pid, s["points"]) for pid, s in scores.items()
+        )
         return _result(
             products, None, rule_conf, "rules",
-            f"no clear fit ({' / '.join(f\"{pid} {s['points']}\" for pid, s in scores.items())} / traffic {traffic_pts})",
+            "no clear fit (" + score_detail + " / traffic " + str(traffic_pts) + ")",
             seed,
         )
     except Exception as e:
