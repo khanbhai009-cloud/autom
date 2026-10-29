@@ -853,12 +853,12 @@ def _parse_gate_verdict(raw: str, judge: str) -> tuple:
     return ok, f"[{judge}] " + (issues or ("clean" if ok else "defects found"))
 
 
-def _gemini_judge(api_key: str, image_bytes: bytes) -> str:
+def _gemini_judge(api_key: str, image_bytes: bytes, model: str = None) -> str:
     from google.genai import types
     client = _get_gate_client(api_key)
     if client is None:
         raise RuntimeError("Gemini client nahi bana")
-    model = os.environ.get("VISION_GATE_MODEL") or _GEMINI_MODEL_CFG or "gemini-2.5-flash"
+    model = model or os.environ.get("VISION_GATE_MODEL") or _GEMINI_MODEL_CFG or "gemini-2.5-flash"
     resp = client.models.generate_content(
         model=model,
         contents=[
@@ -914,11 +914,17 @@ async def _vision_gate(image_bytes: bytes) -> tuple:
 
     key1 = _GEMINI_API_KEY_CFG or os.environ.get("GEMINI_API_KEY", "")
     key2 = os.environ.get("GEMINI_API_KEY_2", "")
+    # Owner ki sahi baat (30 Oct 2026): model PEAK par ho toh dono keys EK HI
+    # model par girengi — key badalna kaafi nahi, MODEL bhi badalna hoga.
+    # Isliye judge 2 alag key ke saath ALAG MODEL (2.5-flash) use karta hai:
+    # 3.8-flash ki bheed 2.5-flash ko nahi rokti, aur iska quota bhi alag hai.
+    model1 = os.environ.get("VISION_GATE_MODEL") or _GEMINI_MODEL_CFG or "gemini-3.8-flash"
+    model2 = os.environ.get("VISION_GATE_MODEL_2", "gemini-2.5-flash")
     judges = []
     if key1:
-        judges.append(("Gemini#1", lambda: _gemini_judge(key1, image_bytes)))
-    if key2 and key2 != key1:
-        judges.append(("Gemini#2", lambda: _gemini_judge(key2, image_bytes)))
+        judges.append((f"Gemini#1({model1})", lambda: _gemini_judge(key1, image_bytes, model1)))
+    if key2:
+        judges.append((f"Gemini#2({model2})", lambda: _gemini_judge(key2, image_bytes, model2)))
     judges.append(("GroqVision", lambda: _groq_judge(image_bytes)))
 
     for name, fn in judges:
