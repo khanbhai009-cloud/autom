@@ -83,6 +83,16 @@ except Exception:
 # account tier is upgraded.
 GROQ_CMO_MAX_TOKENS = int(os.environ.get("GROQ_CMO_MAX_TOKENS", "900"))
 
+# ── V4 Mastermind "thinking" fallback ─────────────────────────────────────────
+# Groq's gpt-oss-120b is a genuine reasoning model on the same free key
+# (verified Oct 2026: 30 RPM / 1,000 RPD / 8K TPM on the free plan — the
+# Llama models left Groq's free tier, gpt-oss + qwen are what remain).
+# It runs ONLY when both Gemini and the fast qwen CMO have failed, so its
+# slower reasoning costs nothing on a healthy day; it replaces the old
+# cliff-edge drop straight into HARDCODED_FALLBACK.
+GROQ_THINKING_MODEL = os.environ.get("GROQ_THINKING_MODEL", "openai/gpt-oss-120b")
+GROQ_THINKING_MAX_TOKENS = int(os.environ.get("GROQ_THINKING_MAX_TOKENS", "1500"))
+
 # ── Image ratio config ─────────────────────────────────────────────────────────
 _RATIOS = {
     "9:16": {"label": "9:16 tall portrait", "w": 1080, "h": 1920},
@@ -1195,7 +1205,28 @@ def _call_groq_sync(prompt: str) -> str:
                     continue
                 raise RuntimeError(f"Groq rate-limited (429) — aborting: {e}") from e
             raise
-        
+
+def _call_groq_thinking_sync(prompt: str) -> str:
+    """V4 — reasoning-model call (gpt-oss-120b) used as the CMO's last
+    LLM resort before HARDCODED_FALLBACK / sheet build. Same JSON contract
+    as _call_groq_sync: returns raw text, callers _extract_json + _validate."""
+    if not _groq_client:
+        raise ValueError("GROQ_API_KEY not configured.")
+    response = _groq_client.chat.completions.create(
+        model=GROQ_THINKING_MODEL,
+        messages=[
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user",   "content": prompt},
+        ],
+        temperature=0.70,
+        max_tokens=GROQ_THINKING_MAX_TOKENS,
+        response_format={"type": "json_object"},
+    )
+    content = response.choices[0].message.content
+    if not content:
+        raise RuntimeError("Thinking model returned empty content (reasoning budget exhausted).")
+    return content
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN ORCHESTRATION — Sequential rotation per account
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1296,6 +1327,36 @@ def _call_cmo_for_account(account_key: str, metrics: dict,
             logger.info(f"   [{account_key}] No board selected by CMO — niche fallback will be used.")
         return result
 
+    def _try_thinking():
+        """V4 — gpt-oss-120b reasoning attempt. Returns a finished strategy
+        dict, or None if the thinking model also fails (caller then follows
+        the old path: raise on 429 / sheet build on other errors)."""
+        try:
+            logger.info(f"   [{account_key}] Groq THINKING fallback ({GROQ_THINKING_MODEL})...")
+            raw    = _call_groq_thinking_sync(prompt)
+            result = _extract_json(raw)
+            _validate(result, account_key)
+            result["pin_type"]     = "VIRAL_PIN"
+            result["visual_style"] = forced_style
+            result["ratio"]        = result.get("ratio", ratio)
+            result["niche"]        = niche
+            _attach_board_fields(result)
+            if "board_keywords" not in result or not isinstance(result.get("board_keywords"), list):
+                result["board_keywords"] = [
+                    result.get("niche", ""),
+                    result.get("vibe", ""),
+                    result.get("visual_style", ""),
+                ]
+                result["board_keywords"] = [k for k in result["board_keywords"] if k]
+            logger.info(f"   [{account_key}] Thinking OK | style={forced_style} | niche={niche}")
+            return result
+        except Exception as think_err:
+            logger.error(
+                f"   [{account_key}] THINKING FAILED — "
+                f"{type(think_err).__name__}: {think_err}"
+            )
+            return None
+
     # ── PRIMARY: Gemini ───────────────────────────────────────────────────────
     try:
         logger.info(f"   [{account_key}] Gemini (primary)...")
@@ -1349,15 +1410,21 @@ def _call_cmo_for_account(account_key: str, metrics: dict,
         logger.error(
             f"   [{account_key}] GROQ 429 RATE LIMIT — "
             f"{type(rate_err).__name__}: {rate_err} | "
-            f"→ Using HARDCODED_FALLBACK (rate limited)"
+            f"→ Trying THINKING model before HARDCODED_FALLBACK"
         )
+        thinking_result = _try_thinking()
+        if thinking_result is not None:
+            return thinking_result
         raise
     except Exception as groq_err:
         logger.error(
             f"   [{account_key}] GROQ FAILED — "
             f"{type(groq_err).__name__}: {groq_err} | "
-            f"→ Building directly from sheet_row for: {forced_style}"
+            f"→ Trying THINKING model before sheet build for: {forced_style}"
         )
+        thinking_result = _try_thinking()
+        if thinking_result is not None:
+            return thinking_result
         return _build_from_style_data(forced_style, ratio, niche, account_key, sheet_row=sheet_row)
 
 # ══════════════════════════════════════════════════════════════════════════════
