@@ -191,6 +191,10 @@ async def fetch_aliexpress_products(niche: str, keyword: str = "") -> dict:
 
 async def _run_inline_blog(imgbb_url: str, cmo: dict, trigger: str) -> str:
     """
+    DEPRECATED — blog pipeline cancelled by the owner (29 Oct 2026).
+    No longer called from the pin flow; kept only so nothing that still
+    imports it breaks. Do not re-wire without the owner's say-so.
+
     Run the 4-node blog pipeline INLINE — before the Pinterest post.
 
     Flow: node_blog_trigger → node_product_researcher → node_blog_writer
@@ -251,17 +255,14 @@ async def publish_next_pin(visual_style: str) -> dict:
     """
     Generate and publish a 100% VIRAL_PIN for the given visual style.
 
-    Full pipeline (when Firebase configured):
-      1. AI image generation (Gemini → OpenRouter → Pollinations)
-      2. Vision AI product research from the generated image
-      3. Blog post written + published to Firebase → blog_url
-      4. Pinterest post via Make.com WITH blog_url as destination link
+    Pipeline:
+      1. Product Router decides this pin's destination (digital product
+         from the Products sheet, or clean/no destination)
+      2. AI image generation (Cloudflare → Replicate → HF → Pollinations)
+      3. Pinterest post via Make.com WITH the routed destination link
 
-    When Firebase is not configured, steps 2–3 are skipped. The LINK GUARD
-    (hold the pin when the blog returns no URL) is OFF by default — it only
-    activates when LINK_GUARD_ENABLED is explicitly set to true/1/yes/on.
-    Keep it off until the Firebase + blog setup is complete; pins then post
-    as before, with or without a blog URL.
+    The old blog pipeline was cancelled by the owner on 29 Oct 2026 —
+    the account sells digital products only.
 
     Args:
         visual_style: one of green_minimalist | sunset_landscape | cozy_architecture | cinematic_retro
@@ -286,6 +287,32 @@ async def publish_next_pin(visual_style: str) -> dict:
     board_id      = cmo.get("board_id") or ""
     board_name    = cmo.get("board_name") or ""
 
+    # ── 1b. V4 Product Router — destination for THIS pin ─────────────────────
+    # The graph's node_product_router normally injects these fields into the
+    # strategy. If they are absent (router node skipped / older call path),
+    # run the router here so the pin never loses its product link to a
+    # wiring gap. HomeDecor only — the kits don't fit the Tech account.
+    destination_url = str(cmo.get("destination_url", "") or "")
+    product_id      = str(cmo.get("product_id", "") or "")
+    product_cta     = str(cmo.get("product_cta", "") or "")
+    if "destination_url" not in cmo and target_account == "Account1_HomeDecor":
+        try:
+            from mastermind.product_router import log_router_decision, route_product
+            _decision = route_product(cmo, account_key="account_1")
+            log_router_decision(cmo, _decision, account_key="account_1")
+            destination_url = _decision.get("destination_url", "")
+            product_id      = _decision.get("product_id", "")
+            product_cta     = _decision.get("product_cta", "")
+        except Exception as _router_err:
+            logger.warning(f"🧭 [{target_account}] Router fallback failed (pin posts clean): {_router_err}")
+
+    if destination_url:
+        logger.info(f"🧭 [{target_account}] Product destination: {product_id} → {destination_url}")
+        # Append the product CTA to the caption copy (webhook caps at 500
+        # chars; CTA is added only when a product actually matched).
+        if product_cta and "gumroad.com" not in desc.lower() and "link below" not in desc.lower():
+            desc = (desc.rstrip() + "\n\n" + product_cta) if desc else product_cta
+
     if not visual_prompt:
         visual_prompt = (
             f"aesthetic {visual_style.replace('_', ' ')} photography, "
@@ -304,35 +331,16 @@ async def publish_next_pin(visual_style: str) -> dict:
 
     logger.info(f"🖼️ [{target_account}] Image ready: {imgbb_url[:60]}...")
 
-    # ── 3. Blog pipeline (Vision AI → Blog Write → Firebase) — BEFORE posting ─
-    trigger   = str(CURRENT_TRIGGER or "account1")
-    blog_enabled = os.getenv("BLOG_ENABLED", "true").lower() == "true"
-    if blog_enabled:
-        blog_url = await _run_inline_blog(imgbb_url=imgbb_url, cmo=cmo, trigger=trigger)
+    # ── 3. Destination ────────────────────────────────────────────────────────
+    # Blog pipeline CANCELLED by the owner (29 Oct 2026): this account sells
+    # digital products only now — no blog posts, no Firebase, no link guard.
+    # A pin's destination is the Product Router's decision (step 1b) or
+    # nothing: pins without a product match post clean, by design.
+    blog_url = ""
+    if destination_url:
+        logger.info(f"🧭 [{target_account}] Destination: product {product_id} → {destination_url}")
     else:
-        logger.info(f"📝 [{target_account}] Blog pipeline DISABLED via BLOG_ENABLED=false")
-        blog_url = ""
-
-    if blog_url:
-        logger.info(f"📝 [{target_account}] Blog URL to pin: {blog_url}")
-    elif blog_enabled and os.getenv("LINK_GUARD_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on"):
-        # ── LINK GUARD ──────────────────────────────────────────────────────
-        # Blog was supposed to provide this pin's destination link but came
-        # back empty. Posting anyway would create a pin that can NEVER earn
-        # an outbound click, so hold the pin; the next scheduled slot retries
-        # the full cycle.
-        logger.error(
-            f"⛔ [{target_account}] LINK GUARD: holding pin — blog pipeline returned "
-            f"no URL, refusing to post without a destination link."
-        )
-        return {
-            "success":   False,
-            "held":      True,
-            "reason":    "Link guard: blog pipeline returned no URL — pin held instead of posting without a destination link.",
-            "image_url": imgbb_url,
-        }
-    else:
-        logger.info(f"📝 [{target_account}] No blog — posting pin without destination link")
+        logger.info(f"🧭 [{target_account}] No product match — posting clean pin (no destination)")
 
     # ── 4. Post to Pinterest via Make.com webhook ─────────────────────────────
     try:
@@ -353,6 +361,7 @@ async def publish_next_pin(visual_style: str) -> dict:
             blog_url=blog_url,
             board_id=board_id,
             board_name=board_name,
+            destination_url=destination_url,
         )
     except Exception as e:
         return {"success": False, "reason": f"Webhook error: {e}"}
@@ -366,6 +375,8 @@ async def publish_next_pin(visual_style: str) -> dict:
             "pin_type":              "VIRAL_PIN",
             "image_url":             imgbb_url,
             "blog_url":              blog_url,
+            "product_id":            product_id,
+            "destination_url":       destination_url,
             "last_posted_image_url": imgbb_url,
         }
 

@@ -16,6 +16,7 @@ async def post_to_pinterest(
     blog_url: str = "",
     board_id: str = "",    # Firebase dynamic board_id — overrides niche-based lookup
     board_name: str = "",  # human-friendly board name for logging
+    destination_url: str = "",  # V4 Product Router — explicit product destination; wins over blog_url/link
 ) -> bool:
 
     # Strictly target account find karo
@@ -36,8 +37,10 @@ async def post_to_pinterest(
     hashtags = " ".join([f"#{t.strip()}" for t in tags])
     caption  = f"{description}\n\n{hashtags}"
 
-    # blog_url takes priority over affiliate link
-    final_link = blog_url if blog_url else link
+    # Destination priority (V4): a Product Router decision is an explicit,
+    # per-pin product destination, so it wins; then the blog URL; then the
+    # legacy link param. Empty everywhere = pin posts clean (no destination).
+    final_link = destination_url if destination_url else (blog_url if blog_url else link)
 
     payload = {
         "image_url": image_url,
@@ -49,7 +52,8 @@ async def post_to_pinterest(
         "alt_text":  alt_text,
     }
 
-    logger.info(f"📌 [{account['name']}] Niche: {niche} → Board: {board_name or board_id} (id={board_id}) | Link: {'blog' if blog_url else 'affiliate'}")
+    _link_kind = "product" if destination_url else ("blog" if blog_url else ("affiliate" if link else "none"))
+    logger.info(f"📌 [{account['name']}] Niche: {niche} → Board: {board_name or board_id} (id={board_id}) | Link: {_link_kind}")
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:

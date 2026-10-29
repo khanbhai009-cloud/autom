@@ -46,6 +46,19 @@ GEMINI_IMAGE_MODEL      = os.getenv(
 FIREBASE_CREDS_JSON = os.getenv("FIREBASE_CREDS_JSON", "")
 BLOG_BASE_URL       = os.getenv("BLOG_BASE_URL", "https://pinteresto.vercel.app")
 
+# ── Pinteresto V4 — Product Router + Mastermind thinking ─────────────────────
+# Router destinations (mastermind/product_router.py). Env-overridable so a
+# product can be swapped without a code change.
+PRODUCT_GARDEN_URL = os.getenv("PRODUCT_GARDEN_URL", "https://cozycanvasstudio.gumroad.com/l/nmkawd")
+PRODUCT_DECOR_URL  = os.getenv("PRODUCT_DECOR_URL",  "https://cozycanvasstudio.gumroad.com/l/ictsf")
+# Mastermind "thinking" fallback: Groq's reasoning model (free tier
+# 30 RPM / 1,000 RPD per official rate-limit docs, Oct 2026). Used by the
+# CMO after the fast qwen model, before any hardcoded fallback.
+GROQ_THINKING_MODEL = os.getenv("GROQ_THINKING_MODEL", "openai/gpt-oss-120b")
+# Image fallback (tools/image_creator.py) — Replicate FLUX schnell,
+# $0.003/image; layer stays OFF until this token is set.
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+
 PINTEREST_ACCOUNTS = [
     {
         "name":        "Account1_HomeDecor",
