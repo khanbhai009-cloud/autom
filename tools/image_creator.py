@@ -907,7 +907,9 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
         logger.warning(f"👁️ [VisionGate] REJECT — {reason} | aur tight diet se ek retry...")
         tighter = _diet_base_prompt(visual_prompt, max_chars=280, max_clauses=6)
         retry_prompt, _retry_mods = _inject_variety(tighter)
-        retry_bytes = await _t2i_cloudflare(retry_prompt, ratio)
+        # Retry poore layer cascade se — pehli image kisi fallback layer se
+        # aayi ho aur Cloudflare down ho, toh bhi retry ka mauka mile.
+        retry_bytes = await _generate_bytes(retry_prompt, ratio)
         if not retry_bytes:
             logger.error("👁️ [VisionGate] Retry par image bani hi nahi — pin SKIP.")
             return None
