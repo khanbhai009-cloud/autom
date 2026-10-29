@@ -151,7 +151,7 @@ _COMP_STYLES = [
     "perfect centered symmetry, interior architecture",
     "leading lines drawing eye through room depth",
     "layered depth: close props, mid furniture, background wall",
-    "foreground bokeh flower or plant framing subject",
+    "foreground plant framing the subject in clear focus",
     "wide establishing room context shot",
     "tight detail crop isolating single beautiful prop",
     "s-curve natural flow composition",
@@ -180,8 +180,7 @@ _SEASONS_WEATHER = [
 # angle/light/composition/season inside one bright-daylight family. v5 adds
 # the missing dimension: a MOOD with a small lived-in STORY (storytelling
 # props), scene-aware (garden vs interior), including warm romantic moods
-# ("evening for two", "rainy window", "love story moment" with a soft-focus
-# couple seen from behind — implied romance, no face-garbling close-ups).
+# ("evening for two", "rainy window", "love story moment").
 #
 # This runs inside generate_pin_image(), the single choke point that BOTH
 # prompt paths pass through — the CMO's expanded prompt AND the Sheets
@@ -360,29 +359,63 @@ def _pick_variety_modifiers(base_prompt: str = "") -> dict:
     }
 
 
-def _inject_variety(base_prompt: str) -> tuple[str, dict]:
+async def _inject_variety(base_prompt: str) -> tuple[str, dict]:
     """
-    Enrich the base visual prompt (CMO-expanded or Sheets t2i_base — both
-    land here) with variety + mood/story modifiers.
-    Returns (enriched_prompt, modifiers_used) — modifiers logged for debugging.
+    Preserve the complete scene prompt and ask Gemini for a faithful variation.
+    The LLM may rephrase for clarity and vary camera framing/light direction,
+    but must not add, remove, merge, or substitute scene objects.
     """
-    mods = _pick_variety_modifiers(base_prompt)
+    original = str(base_prompt or "").strip()
+    if not original:
+        return original, {"mood": "empty_prompt", "method": "none"}
 
-    parts = [mods["angle"], mods["lighting"]]
-    if mods.get("props"):
-        parts.append(mods["props"])
-    if mods.get("detail"):
-        parts.append(mods["detail"])
-    parts += [mods["comp"], mods["season"]]
-    variety_block = ", ".join(parts)
+    client = _get_gate_client()
+    if client is not None:
+        model = os.environ.get("IMAGE_PROMPT_VARIATION_MODEL") or _GEMINI_MODEL_CFG or "gemini-2.5-flash"
+        variation_instruction = (
+            "You are a professional interior/ lifestyle photography art director. "
+            "Rewrite the user's complete image prompt into ONE clear, photorealistic image-generation prompt. "
+            "Preserve every required object, furniture type, material, color, placement relationship, and style. "
+            "Do not shorten it or omit details. Do not add any new objects or people. "
+            "Never combine object identities (a bed must remain a bed; a sofa must remain a sofa). "
+            "Keep the scene physically plausible, with realistic proportions, contact shadows, natural material texture, "
+            "fine fabric/wood/stone detail, believable light falloff, and crisp focus across the main scene. "
+            "Vary only the camera viewpoint/framing and light direction subtly when compatible with the prompt. "
+            "No bokeh, blur, soft focus, dreamy glow, surreal styling, CGI/plastic surfaces, or invented decorations. "
+            "Do not add claims like 8K/4K as a substitute for detail. Return ONLY the rewritten prompt, no commentary.\n\n"
+            "ORIGINAL PROMPT (all requirements must be retained):\n"
+            + original
+        )
+        try:
+            def _call_variation() -> str:
+                from google.genai import types
+                resp = client.models.generate_content(
+                    model=model,
+                    contents=variation_instruction,
+                    config=types.GenerateContentConfig(
+                        temperature=0.65, max_output_tokens=1200
+                    ),
+                )
+                return (resp.text or "").strip()
 
-    quality_tail = _QUALITY_TAIL
+            rewritten = await asyncio.to_thread(_call_variation)
+            # Refuse suspiciously short outputs; a failed rewrite must never
+            # replace the complete source prompt with a lossy summary.
+            if rewritten and len(rewritten) >= min(250, int(len(original) * 0.55)):
+                logger.info("🧠 [PromptVariation] Gemini rewrite accepted (%s → %s chars)", len(original), len(rewritten))
+                return rewritten, {"mood": "llm_photorealistic", "method": "gemini"}
+            logger.warning("⚠️ [PromptVariation] Rewrite too short; using full original prompt")
+        except Exception as e:
+            logger.warning("⚠️ [PromptVariation] Gemini unavailable (%s); using safe fallback", type(e).__name__)
 
-    # Strip existing quality tail if prompts master already added it, re-add cleanly
-    base_clean = base_prompt.replace(quality_tail, "").rstrip(", ").strip()
-
-    enriched = f"{base_clean}, {variety_block}, {quality_tail}"
-    return enriched, mods
+    # Safe fallback: preserve the prompt and add only photographic constraints.
+    # No random props, seasons, moods, or composition phrases that can conflict.
+    suffix = (
+        " Photorealistic interior photography, physically accurate furniture geometry, "
+        "natural material textures, realistic contact shadows and reflections, balanced exposure, "
+        "crisp focus on the complete main scene, no blur or soft focus, no extra objects."
+    )
+    return original.rstrip(" .") + "." + suffix, {"mood": "safe_fallback", "method": "fallback"}
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -393,7 +426,7 @@ _QUALITY_TAIL = (
 )
 
 
-def _enrich_prompt(prompt: str, max_chars: int = 1400) -> str:
+def _enrich_prompt(prompt: str, max_chars: int = 4000) -> str:
     """Quality tail hamesha rakho — truncation use KABHI na kaate.
 
     Purana bug (quality girne ki jad, 30 Oct 2026): cap 750 tha aur kataav
@@ -571,7 +604,7 @@ async def _t2i_cloudflare(prompt: str, ratio: str) -> Optional[bytes]:
 # is set in the environment.
 
 async def _replicate_once(prompt: str, ratio: str) -> Optional[bytes]:
-    enriched = _enrich_prompt(prompt, max_chars=500)
+    enriched = _enrich_prompt(prompt, max_chars=4000)
     headers = {
         "Authorization": f"Bearer {REPLICATE_API_TOKEN}",
         "Content-Type": "application/json",
@@ -627,7 +660,7 @@ async def _huggingface_once(prompt: str, ratio: str) -> Optional[bytes]:
         raise RuntimeError("HF_TOKEN not set in environment.")
 
     w, h     = _get_dims(ratio)
-    enriched = _enrich_prompt(prompt, max_chars=500)
+    enriched = _enrich_prompt(prompt, max_chars=4000)
 
     headers = {
         "Authorization": f"Bearer {HF_API_TOKEN}",
@@ -784,15 +817,16 @@ def _diet_base_prompt(prompt: str, max_chars: int = _DIET_MAX_CHARS,
     return ", ".join(kept)
 
 
-_GATE_PROMPT = """You are a strict photo-quality inspector for a home-decor Pinterest account.
-Look at this AI-generated interior/garden photo and reply with ONLY this JSON:
-{"ok": true, "issues": []}
-Set "ok": false ONLY for clear defects:
-- furniture that is a HYBRID of two different objects (e.g. half bed + half sofa)
-- melted, warped or physically impossible shapes or geometry
-- a chaotic, cluttered, disgusting-looking room with random junk everywhere
-- badly distorted people or faces
-Normal cozy styling, plants, warm light and decor objects are FINE. When unsure, ok=true."""
+_GATE_PROMPT = """You are a strict quality-control reviewer for photorealistic home-decor Pinterest images.
+Inspect the whole image and reply ONLY with JSON: {"ok": true, "issues": []}
+Set ok=false for clearly visible defects only:
+- hybrid/merged furniture or objects (e.g. bed-sofa hybrid, sofa fused with a bed)
+- melted, warped, impossible, duplicated, or structurally incoherent furniture
+- major geometry/perspective errors or floating objects with no physical support
+- visibly blurry/soft main subject, smeared textures, severe low-detail rendering, or obvious plastic/CGI appearance
+- severe clutter or badly distorted people/faces
+Do NOT reject merely because the image is AI-generated, stylized, warm-lit, or contains ordinary decor.
+When uncertain, return ok=true. Include short issue labels in the issues array."""
 
 _gate_client = None
 
@@ -827,7 +861,10 @@ async def _vision_gate(image_bytes: bytes) -> tuple:
             model=model,
             contents=[
                 _GATE_PROMPT,
-                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+                types.Part.from_bytes(
+                    data=image_bytes,
+                    mime_type=("image/png" if image_bytes.startswith(b"\\x89PNG\\r\\n\\x1a\\n") else "image/jpeg"),
+                ),
             ],
             config=types.GenerateContentConfig(
                 temperature=0.0, max_output_tokens=300,
@@ -857,71 +894,54 @@ async def _vision_gate(image_bytes: bytes) -> tuple:
 
 async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optional[str]:
     """
-    Generate a Pinterest image using the T2I pipeline.
-
-    Flow:
-      1. Inject 4 focused variety modifiers (angle, lighting, comp, season)
-      2. Random seed every call for visual freshness
-      3. Try Cloudflare (primary) → HuggingFace (secondary) → Pollinations (last resort)
-      4. Upload result to ImgBB for permanent hosting
-
-    Args:
-        visual_prompt: The detailed visual prompt from prompts master
-        ratio: "9:16" (Pinterest portrait) or "1:1" (square)
-
-    Returns:
-        ImgBB hosted URL or None if all models fail
+    High-fidelity Pinterest image pipeline:
+      1. Keep the complete source prompt (no comma-clause prompt diet).
+      2. Use Gemini for a faithful, object-preserving photography rewrite when available.
+      3. Generate through the existing provider cascade.
+      4. Reject obvious hybrid/blur/geometry defects and retry once without truncating.
+      5. Upload accepted original image bytes to ImgBB.
     """
     w, h = _get_dims(ratio)
-    logger.info(f"🎨 [Image Pipeline] PIN | ratio={ratio} ({w}x{h})")
+    logger.info("🎨 [Image Pipeline] PIN | ratio=%s (%sx%s)", ratio, w, h)
 
-    # PROMPT DIET — base ki object-bheed pehle kaato (hybrid ki jad),
-    # phir variety/mood upar lagega. Dono raaste (CMO + Sheets) yahi se.
-    diet_base = _diet_base_prompt(visual_prompt)
-    if len(diet_base) < len(str(visual_prompt)):
-        logger.info(
-            f"🥗 [PromptDiet] base {len(str(visual_prompt))} → {len(diet_base)} chars "
-            f"(pehle clauses rakhe, object-bheed kati)"
-        )
+    original = str(visual_prompt or "").strip()
+    if not original:
+        logger.error("❌ [Image Pipeline] Empty visual prompt; refusing to generate.")
+        return None
 
-    # Inject variety + mood/story (v5) — same treatment for CMO prompts
-    # and Sheets fallback prompts alike; this is the single choke point.
-    enriched_prompt, mods = _inject_variety(diet_base)
-    logger.info(
-        f"🎲 [Variety Engine v5] mood={mods.get('mood', '?')} | "
-        f"angle={mods['angle'][:35]} | "
-        f"light={mods['lighting'][:35]} | "
-        f"comp={mods['comp'][:35]} | "
-        f"season={mods['season'][:35]}"
-    )
-    logger.info(f"📝 [Prompt] {len(enriched_prompt)} chars: {enriched_prompt[:120]}...")
+    enriched_prompt, mods = await _inject_variety(original)
+    logger.info("🧠 [PromptVariation] method=%s | source=%s chars | final=%s chars",
+                mods.get("method", "?"), len(original), len(enriched_prompt))
+    logger.info("📝 [Prompt] %s chars: %s...", len(enriched_prompt), enriched_prompt[:180])
 
     image_bytes = await _generate_bytes(enriched_prompt, ratio)
     if not image_bytes:
         logger.error("❌ [Image Pipeline] All models exhausted — no image generated.")
         return None
 
-    # ── VISION GATE — post se pehle quality check ──────────────────────────
     ok, reason = await _vision_gate(image_bytes)
     if not ok:
-        logger.warning(f"👁️ [VisionGate] REJECT — {reason} | aur tight diet se ek retry...")
-        tighter = _diet_base_prompt(visual_prompt, max_chars=280, max_clauses=6)
-        retry_prompt, _retry_mods = _inject_variety(tighter)
+        logger.warning("👁️ [VisionGate] REJECT — %s | retrying once with full source prompt", reason)
+        # Do not diet/truncate the source prompt on retry. Use a concise
+        # quality constraint without adding scene objects or contradictory moods.
+        retry_prompt = (
+            original.rstrip(" .") +
+            ". Photorealistic professional interior photography; preserve each object as a distinct, "
+            "physically plausible object; realistic materials and shadows; sharp detailed main scene; "
+            "no blur, no object fusion, no extra furniture."
+        )
         retry_bytes = await _t2i_cloudflare(retry_prompt, ratio)
         if not retry_bytes:
-            logger.error("👁️ [VisionGate] Retry par image bani hi nahi — pin SKIP.")
+            logger.error("👁️ [VisionGate] Retry generation failed — pin skipped.")
             return None
         ok2, reason2 = await _vision_gate(retry_bytes)
         if not ok2:
-            logger.error(
-                f"👁️ [VisionGate] Retry bhi REJECT — {reason2} | "
-                f"pin SKIP (kharab image board par nahi jayegi)"
-            )
+            logger.error("👁️ [VisionGate] Retry rejected — %s | pin skipped.", reason2)
             return None
-        logger.info(f"👁️ [VisionGate] Retry PASS — {reason2}")
+        logger.info("👁️ [VisionGate] Retry PASS — %s", reason2)
         image_bytes = retry_bytes
     else:
-        logger.info(f"👁️ [VisionGate] PASS — {reason}")
+        logger.info("👁️ [VisionGate] PASS — %s", reason)
 
     return await _upload_to_imgbb(image_bytes)
 
