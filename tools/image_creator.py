@@ -38,9 +38,11 @@ RATIO SUPPORT:
 
 import asyncio
 import base64
+import json
 import logging
 import os
 import random
+import re
 import urllib.parse
 from typing import Optional
 
@@ -58,6 +60,18 @@ try:
     from config import IMAGE_MOOD_ENGINE as _IMAGE_MOOD_ENGINE_CFG
 except Exception:  # older config without the switches section
     _IMAGE_MOOD_ENGINE_CFG = None
+
+try:
+    from config import IMAGE_VISION_GATE as _IMAGE_VISION_GATE_CFG
+except Exception:  # older config without the switches section
+    _IMAGE_VISION_GATE_CFG = None
+
+try:
+    from config import GEMINI_API_KEY as _GEMINI_API_KEY_CFG
+    from config import GEMINI_CMO_MODEL as _GEMINI_MODEL_CFG
+except Exception:
+    _GEMINI_API_KEY_CFG = None
+    _GEMINI_MODEL_CFG = None
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +198,12 @@ if _IMAGE_MOOD_ENGINE_CFG is not None:
     MOOD_ENGINE_ENABLED = bool(_IMAGE_MOOD_ENGINE_CFG)
 else:
     MOOD_ENGINE_ENABLED = os.environ.get("IMAGE_MOOD_ENGINE", "on").strip().lower() not in ("off", "false", "0", "no")
+
+# Vision gate switch — same pattern (config first, env fallback).
+if _IMAGE_VISION_GATE_CFG is not None:
+    VISION_GATE_ENABLED = bool(_IMAGE_VISION_GATE_CFG)
+else:
+    VISION_GATE_ENABLED = os.environ.get("IMAGE_VISION_GATE", "on").strip().lower() not in ("off", "false", "0", "no")
 
 # Each mood: name, scenes it fits, its own lighting, 1-2 story props picked
 # at random, and an optional season override (a winter-hearth mood must not
@@ -726,6 +746,112 @@ async def _t2i_pollinations(prompt: str, ratio: str) -> Optional[bytes]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# PROMPT DIET + VISION GATE (owner ki shikayat, 30 Oct 2026)
+# ──────────────────────────────────────────────────────────────────────────────
+# Hybrid/gadbad images (bed+sofa mixture, disgusting clutter room) ki jad:
+# chhota 4B image model 20+ objects wala 1000+ char prompt nahi sambhal
+# pata — paas ke shabdon ke features ghul jate hain. Ilaaj do hisso me:
+#   1) DIET — image model ko sirf saaf-suthra chhota prompt: pehle ~10
+#      clauses / ~430 chars (subject + hero furniture pehle aate hain,
+#      object-bheed peeche kat jati hai). Mood/variety/tail upar lagte hain.
+#   2) GATE — bani image post se pehle Gemini Vision se check; hybrid ya
+#      pighli shape mile toh diet prompt se EK retry, phir bhi kharab ho
+#      toh pin skip (board par gadbad ja hi nahi payegi).
+# Gate FAIL-OPEN hai: Gemini down/429 ho toh image rukti nahi, post hoti
+# hai (raat ke peak par pipeline band karna ilaaj nahi hai).
+# ══════════════════════════════════════════════════════════════════════════════
+_DIET_MAX_CHARS   = 430
+_DIET_MAX_CLAUSES = 10
+
+
+def _diet_base_prompt(prompt: str, max_chars: int = _DIET_MAX_CHARS,
+                      max_clauses: int = _DIET_MAX_CLAUSES) -> str:
+    """Base prompt ko clause-boundary par trim karo (aadha shabd kabhi nahi
+    katega). Kam se kam 3 clauses hamesha rahenge. Duplicate clauses hate."""
+    clauses = [c.strip() for c in str(prompt or "").split(",") if c.strip()]
+    seen, uniq = set(), []
+    for c in clauses:
+        k = c.lower()
+        if k not in seen:
+            seen.add(k)
+            uniq.append(c)
+    kept, total = [], 0
+    for c in uniq:
+        if len(kept) >= 3 and (len(kept) >= max_clauses or total + len(c) > max_chars):
+            break
+        kept.append(c)
+        total += len(c) + 2
+    return ", ".join(kept)
+
+
+_GATE_PROMPT = """You are a strict photo-quality inspector for a home-decor Pinterest account.
+Look at this AI-generated interior/garden photo and reply with ONLY this JSON:
+{"ok": true, "issues": []}
+Set "ok": false ONLY for clear defects:
+- furniture that is a HYBRID of two different objects (e.g. half bed + half sofa)
+- melted, warped or physically impossible shapes or geometry
+- a chaotic, cluttered, disgusting-looking room with random junk everywhere
+- badly distorted people or faces
+Normal cozy styling, plants, warm light and decor objects are FINE. When unsure, ok=true."""
+
+_gate_client = None
+
+
+def _get_gate_client():
+    global _gate_client
+    if _gate_client is None:
+        try:
+            from google import genai
+            key = _GEMINI_API_KEY_CFG or os.environ.get("GEMINI_API_KEY", "")
+            if not key:
+                return None
+            _gate_client = genai.Client(api_key=key)
+        except Exception:
+            return None
+    return _gate_client
+
+
+async def _vision_gate(image_bytes: bytes) -> tuple:
+    """(ok, reason). Koi bhi error → (True, 'fail-open') — judge ki outage
+    par pipeline nahi rukegi."""
+    if not VISION_GATE_ENABLED:
+        return True, "gate off"
+    client = _get_gate_client()
+    if client is None:
+        return True, "no Gemini key — gate skipped (fail-open)"
+    model = os.environ.get("VISION_GATE_MODEL") or _GEMINI_MODEL_CFG or "gemini-2.5-flash"
+
+    def _call() -> str:
+        from google.genai import types
+        resp = client.models.generate_content(
+            model=model,
+            contents=[
+                _GATE_PROMPT,
+                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0.0, max_output_tokens=300,
+                response_mime_type="application/json",
+            ),
+        )
+        return resp.text or ""
+
+    try:
+        raw = await asyncio.to_thread(_call)
+        m = re.search(r"\{.*\}", raw, re.S)
+        data = json.loads(m.group(0)) if m else {}
+        ok = bool(data.get("ok", True))
+        issues = ", ".join(str(i) for i in (data.get("issues") or []))
+        return ok, issues or ("clean" if ok else "defects found")
+    except Exception as e:
+        logger.warning(
+            f"👁️ [VisionGate] check fail hua ({type(e).__name__}: {str(e)[:120]}) "
+            f"— fail-open, image post hogi"
+        )
+        return True, "gate error — fail-open"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # PUBLIC API
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -749,9 +875,18 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
     w, h = _get_dims(ratio)
     logger.info(f"🎨 [Image Pipeline] PIN | ratio={ratio} ({w}x{h})")
 
+    # PROMPT DIET — base ki object-bheed pehle kaato (hybrid ki jad),
+    # phir variety/mood upar lagega. Dono raaste (CMO + Sheets) yahi se.
+    diet_base = _diet_base_prompt(visual_prompt)
+    if len(diet_base) < len(str(visual_prompt)):
+        logger.info(
+            f"🥗 [PromptDiet] base {len(str(visual_prompt))} → {len(diet_base)} chars "
+            f"(pehle clauses rakhe, object-bheed kati)"
+        )
+
     # Inject variety + mood/story (v5) — same treatment for CMO prompts
     # and Sheets fallback prompts alike; this is the single choke point.
-    enriched_prompt, mods = _inject_variety(visual_prompt)
+    enriched_prompt, mods = _inject_variety(diet_base)
     logger.info(
         f"🎲 [Variety Engine v5] mood={mods.get('mood', '?')} | "
         f"angle={mods['angle'][:35]} | "
@@ -761,29 +896,49 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
     )
     logger.info(f"📝 [Prompt] {len(enriched_prompt)} chars: {enriched_prompt[:120]}...")
 
-    # PRIMARY: Cloudflare
-    image_bytes = await _t2i_cloudflare(enriched_prompt, ratio)
-
-    # SECONDARY: Replicate (same schnell model, paid micro-fallback)
-    if not image_bytes:
-        logger.info("🔄 [Image Pipeline] Cloudflare exhausted — trying Replicate...")
-        image_bytes = await _t2i_replicate(enriched_prompt, ratio)
-
-    # TERTIARY: HuggingFace (legacy — schnell removed Jul 2026, fast-bails on 410)
-    if not image_bytes:
-        logger.info("🔄 [Image Pipeline] Replicate exhausted — trying HuggingFace...")
-        image_bytes = await _t2i_huggingface(enriched_prompt, ratio)
-
-    # LAST RESORT: Pollinations
-    if not image_bytes:
-        logger.info("🔄 [Image Pipeline] HuggingFace exhausted — trying Pollinations...")
-        image_bytes = await _t2i_pollinations(enriched_prompt, ratio)
-
+    image_bytes = await _generate_bytes(enriched_prompt, ratio)
     if not image_bytes:
         logger.error("❌ [Image Pipeline] All models exhausted — no image generated.")
         return None
 
+    # ── VISION GATE — post se pehle quality check ──────────────────────────
+    ok, reason = await _vision_gate(image_bytes)
+    if not ok:
+        logger.warning(f"👁️ [VisionGate] REJECT — {reason} | aur tight diet se ek retry...")
+        tighter = _diet_base_prompt(visual_prompt, max_chars=280, max_clauses=6)
+        retry_prompt, _retry_mods = _inject_variety(tighter)
+        retry_bytes = await _t2i_cloudflare(retry_prompt, ratio)
+        if not retry_bytes:
+            logger.error("👁️ [VisionGate] Retry par image bani hi nahi — pin SKIP.")
+            return None
+        ok2, reason2 = await _vision_gate(retry_bytes)
+        if not ok2:
+            logger.error(
+                f"👁️ [VisionGate] Retry bhi REJECT — {reason2} | "
+                f"pin SKIP (kharab image board par nahi jayegi)"
+            )
+            return None
+        logger.info(f"👁️ [VisionGate] Retry PASS — {reason2}")
+        image_bytes = retry_bytes
+    else:
+        logger.info(f"👁️ [VisionGate] PASS — {reason}")
+
     return await _upload_to_imgbb(image_bytes)
+
+
+async def _generate_bytes(prompt: str, ratio: str) -> Optional[bytes]:
+    """Layer cascade: Cloudflare → Replicate → HuggingFace → Pollinations."""
+    image_bytes = await _t2i_cloudflare(prompt, ratio)
+    if not image_bytes:
+        logger.info("🔄 [Image Pipeline] Cloudflare exhausted — trying Replicate...")
+        image_bytes = await _t2i_replicate(prompt, ratio)
+    if not image_bytes:
+        logger.info("🔄 [Image Pipeline] Replicate exhausted — trying HuggingFace...")
+        image_bytes = await _t2i_huggingface(prompt, ratio)
+    if not image_bytes:
+        logger.info("🔄 [Image Pipeline] HuggingFace exhausted — trying Pollinations...")
+        image_bytes = await _t2i_pollinations(prompt, ratio)
+    return image_bytes
 
 
 async def upload_raw_image(image_url: str) -> Optional[str]:
