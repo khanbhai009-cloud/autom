@@ -19,8 +19,9 @@ to tools/make_webhook.py, where it takes priority over the blog URL. If this
 node is ever skipped, publish_next_pin() runs the router itself as a
 fallback, so a pin can never lose its product link to a wiring gap.
 
-Routing itself lives in mastermind/product_router.py (rules + LLM judge).
-Decisions are logged to Firestore `product_router_log` (best-effort).
+Routing itself lives in mastermind/product_router.py (rules + LLM judge;
+products come from the `Products` Google Sheet tab). Decisions are logged
+to the `Product_Router_Log` sheet tab (best-effort).
 """
 
 import asyncio
