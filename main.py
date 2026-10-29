@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from agent import run_agent, fill_missing_niches
 from mastermind.graph import run_mastermind
 from sheets import get_all_products
+from sheets.schedule_state import load_daily_plan, save_daily_plan
 from tools.llm import chat
 from config import GEMINI_API_KEY, GEMINI_CHAT_MODEL
 from tools.visions_ai import (
@@ -149,18 +150,17 @@ async def mastermind_scheduled_job(trigger: str):
 
 # ── Smart Daily Scheduler ──────────────────────────────────────────────────────
 #
-# Window : India 3 PM → 11 AM next day  =  EST 1:30 AM → 11:30 PM  (~22 hours)
+# Scheduler timezone: America/New_York (pins US audience ke liye hain).
+# IST sirf DISPLAY ke liye hai (app/logs) — scheduling hamesha ek hi
+# timezone par hoti hai, kabhi dono par nahi.
 # Pins   : 20 total per day — 10 per account
-# Gap    : random 20–30 min between ANY two consecutive pins (no parallel posting)
+# Gap    : random 60–72 min between consecutive pins (interleaved A1/A2)
 # Layout : slots interleaved  →  A1, A2, A1, A2 ... (20 slots total)
 # Split  : 100% VIRAL_PIN
+# Plan   : Sheets (Schedule_State) me persist — restart par resume.
 #
 # Trigger string format: "scheduled-account1-VIRAL_PIN"
-#   → CMO reads account + pin_type override from trigger
 #   → Agent Executor posts ONLY the specified account
-#
-# India timing: 3:00 PM → 11:00 AM next day
-# EST equivalent: 1:30 AM → 11:30 PM
 #
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -169,41 +169,73 @@ def _random_daily_split() -> list:
     return ["VIRAL_PIN"] * 10
 
 
-def schedule_daily_pins():
+def schedule_daily_pins(force: bool = False):
     """
-    Generate and register 20 pins across next ~8-10 hours from NOW.
-    No time window restriction — pins spread from NOW with 20-30 min gaps.
-    Called once at startup and again via daily cron at midnight.
+    Register today's 20 pins (10 per account, 60-72 min gaps, interleaved).
+
+    Plan PERSISTENCE (30 Oct 2026): the day's slot plan is saved to Sheets
+    (Schedule_State tab). A restart/deploy RESUMES the same plan — slots
+    whose time has passed are skipped, the rest fire at their planned
+    times. Before this, every restart threw the plan away and started a
+    fresh train 5-15 min later, so deploy-heavy days posted in bursts.
+    A brand-new plan is made only for a new day (midnight cron, force=True)
+    or when no saved plan exists.
     """
     tz  = scheduler.timezone
     now = datetime.now(tz=tz)
 
     TOTAL_PINS  = 20
-    MIN_GAP     = 60   # minutes — spread across full 24 hrs
+    MIN_GAP     = 60   # minutes between consecutive pins (any account)
     MAX_GAP     = 72   # minutes
 
-    # ── Generate 20 slots from NOW ────────────────────────────────────────────
-    slots = []
-    current = random.randint(5, 15)   # first pin: 5–15 min from now
-    for _ in range(TOTAL_PINS):
-        slots.append(current)
-        current += random.randint(MIN_GAP, MAX_GAP)
-    slots.sort()
+    today = now.strftime("%Y-%m-%d")
+    plan  = None if force else load_daily_plan()
+    if plan and plan.get("day") == today and len(plan.get("slots", [])) == TOTAL_PINS:
+        slots   = [int(s) for s in plan["slots"]]
+        resumed = True
+    else:
+        slots = []
+        current = random.randint(5, 15)   # first pin: 5–15 min from plan time
+        for _ in range(TOTAL_PINS):
+            slots.append(current)
+            current += random.randint(MIN_GAP, MAX_GAP)
+        slots.sort()
+        save_daily_plan({"day": today, "slots": slots,
+                         "created": now.isoformat(timespec="seconds")})
+        resumed = False
 
     # ── Random pin-type split for each account ─────────────────────────────────
     a1_plan = _random_daily_split()   # 10x VIRAL_PIN
     a2_plan = _random_daily_split()   # 10x VIRAL_PIN
+
+    # Slots are offsets from the PLAN's creation moment — on a resume that
+    # moment is in the past, so anchor to it (na ki restart ke 'now' par).
+    base = now
+    if resumed:
+        try:
+            base = datetime.fromisoformat(plan["created"])
+            if base.tzinfo is None:
+                base = base.replace(tzinfo=tz)
+        except Exception:
+            base = now
 
     # ── Remove old scheduled pin jobs ─────────────────────────────────────────
     for job in scheduler.get_jobs():
         if job.id.startswith("pin_"):
             scheduler.remove_job(job.id)
 
-    # ── Register jobs — interleaved A1/A2 ──────────────────────────────────────
-    a1_idx = a2_idx = scheduled = 0
+    # ── Register jobs — interleaved A1/A2 (beet gaye slots skip) ──────────────
+    a1_idx = a2_idx = scheduled = skipped_past = 0
 
     for i, offset_min in enumerate(slots):
-        run_time = now + timedelta(minutes=offset_min)
+        run_time = base + timedelta(minutes=offset_min)
+        if run_time <= now + timedelta(seconds=30):
+            skipped_past += 1
+            if i % 2 == 0:
+                a1_idx += 1
+            else:
+                a2_idx += 1
+            continue
 
         if i % 2 == 0 and a1_idx < 10:         # even slot → Account 1
             pin_type = a1_plan[a1_idx]
@@ -228,12 +260,10 @@ def schedule_daily_pins():
             scheduled += 1
 
     logger.info(
-        f"✅ Daily schedule ready — {scheduled}/20 pins registered\n"
-        f"   Acc1 plan ({a1_idx} slots): {a1_plan}\n"
-        f"   Acc2 plan ({a2_idx} slots): {a2_plan}\n"
-        f"   First pin: ~{slots[0] if slots else 0} min from now\n"
-        f"   Last pin: ~{slots[-1] if slots else 0} min from now\n"
-        f"   Gap between pins: 20–30 min random"
+        f"✅ Daily schedule ready — {scheduled}/20 pins registered"
+        f"{' (RESUMED saved plan)' if resumed else ' (new plan)'}\n"
+        f"   Beet gaye slots skip: {skipped_past} | Acc1 next idx: {a1_idx} | Acc2 next idx: {a2_idx}\n"
+        f"   Gap between pins: {MIN_GAP}–{MAX_GAP} min random (interleaved A1/A2)"
     )
     # Reset daily counter
     state["posted_today"] = 0
@@ -253,8 +283,10 @@ async def lifespan(app: FastAPI):
     except Exception as _e:
         logger.warning(f"⚠️ Trend tabs init failed: {_e}")
 
-    # Daily re-scheduler — fires at midnight, schedules next 20 pins fresh
-    scheduler.add_job(schedule_daily_pins, "cron", hour=0, minute=0, id="daily_scheduler")
+    # Daily re-scheduler — fires at midnight (scheduler tz = America/New_York),
+    # force=True → naye din ka NAYA plan banta hai
+    scheduler.add_job(schedule_daily_pins, "cron", hour=0, minute=0,
+                      id="daily_scheduler", kwargs={"force": True})
 
     # ── Watchdog: every 30 min check if no pin jobs are registered → re-schedule ──
     # This survives HuggingFace hibernation / missed cron wakeups
@@ -274,7 +306,7 @@ async def lifespan(app: FastAPI):
     schedule_daily_pins()
     scheduler.start()
     asyncio.create_task(pin_watchdog())
-    logger.info("✅ Smart Scheduler Active — 20 pins/day (10 per account) | India: 3:00 PM – 11:00 AM | EST: 1:30 AM – 11:30 PM | Gap: 20–30 min random")
+    logger.info("✅ Smart Scheduler Active — 20 pins/day (10 per account) | scheduler tz America/New_York (US audience) | Gap: 60–72 min between pins | Plan Sheets me saved — restart par resume hota hai")
 
     # ── Vision Feeder: Google Drive loop ─────────────────────────────────────
     async def vision_feeder_loop():

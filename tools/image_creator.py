@@ -243,7 +243,7 @@ _MOODS = [
      "props": ["a basket of fresh bread and sunflowers",
                "jam jars on a checked cloth on the table"]},
     {"name": "love_story_moment", "scenes": ("interior", "garden"), "season": None,
-     "lighting": "dreamy golden light with soft-focus edges",
+     "lighting": "dreamy golden light with a soft romantic glow, main subject in sharp focus",
      "props": ["in the blurred background, a couple seen from behind holding hands, faces not visible",
                "two coffee cups side by side and one shared open book in the foreground"]},
 ]
@@ -356,7 +356,7 @@ def _inject_variety(base_prompt: str) -> tuple[str, dict]:
     parts += [mods["comp"], mods["season"]]
     variety_block = ", ".join(parts)
 
-    quality_tail = "4K ultra HD, photorealistic, highly detailed, award-winning photography"
+    quality_tail = _QUALITY_TAIL
 
     # Strip existing quality tail if prompts master already added it, re-add cleanly
     base_clean = base_prompt.replace(quality_tail, "").rstrip(", ").strip()
@@ -367,11 +367,32 @@ def _inject_variety(base_prompt: str) -> tuple[str, dict]:
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-def _enrich_prompt(prompt: str, max_chars: int = 750) -> str:
-    """Ensure quality tail present, then truncate. Variety already injected upstream."""
+_QUALITY_TAIL = (
+    "4K ultra HD, photorealistic, razor-sharp focus on the main subject, "
+    "crisp fine details, highly detailed, award-winning photography"
+)
+
+
+def _enrich_prompt(prompt: str, max_chars: int = 1400) -> str:
+    """Quality tail hamesha rakho — truncation use KABHI na kaate.
+
+    Purana bug (quality girne ki jad, 30 Oct 2026): cap 750 tha aur kataav
+    seedha END se hota tha. Variety engine ke baad prompts 850+ chars ke
+    ho gaye, toh har image ka quality tail hi kat jata tha — model ko
+    '4K... photorealistic... sharp' wala hissa milta hi nahi tha, images
+    soft/blurry aati thin. Ab: cap 1400, aur lamba ho toh BASE ka beech
+    kat-ta hai, tail hamesha poora rehta hai.
+    """
     base = prompt.strip()
     if "4K" not in base and "4k" not in base:
-        base += ", 4K ultra HD, photorealistic, highly detailed, award-winning photography"
+        base += ", " + _QUALITY_TAIL
+    if len(base) <= max_chars:
+        return base
+    marker = ", 4K ultra HD"
+    idx = base.rfind(marker)
+    if idx > 0:
+        head, tail = base[:idx], base[idx:]
+        return head[: max_chars - len(tail)] + tail
     return base[:max_chars]
 
 
