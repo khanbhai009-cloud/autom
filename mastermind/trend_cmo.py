@@ -276,6 +276,7 @@ Trend keywords that match this image: {', '.join(keywords) if keywords else 'non
     for provider, generate in (
         ("Gemini", n._call_gemini_sync),
         ("Groq", n._call_groq_sync),
+        ("GroqThinking", n._call_groq_thinking_sync),
     ):
         try:
             result = n._extract_json(generate(prompt))
