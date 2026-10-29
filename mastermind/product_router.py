@@ -456,7 +456,7 @@ def route_product(strategy: dict, account_key: str = "account_1") -> dict:
         # No clear fit — post clean. Designed outcome for scenery/seasonal pins.
         return _result(
             products, None, rule_conf, "rules",
-            f"no clear fit ({' / '.join(f'{pid} {s['points']}' for pid, s in scores.items())} / traffic {traffic_pts})",
+            f"no clear fit ({' / '.join(f'{pid} {s['points']}'' for pid, s in scores.items())} / traffic {traffic_pts})",
             seed,
         )
     except Exception as e:
