@@ -303,7 +303,13 @@ Trend keywords that match this image: {', '.join(keywords) if keywords else 'non
             "pin_type": "VIRAL_PIN",
             "strategy": f"Trend Direct (no LLM) — {trend['trend']}",
             "vibe": description[:80],
-            "title": f"{lead_kw.title()} Ideas You'll Want To Save"[:90],
+            "title": (
+                f"This {lead_kw} is pure comfort"
+                if len(lead_kw) % 3 == 0 else
+                f"A {lead_kw} moment worth slowing down for"
+                if len(lead_kw) % 3 == 1 else
+                f"The {lead_kw} everyone will be saving"
+            )[:90],
             "description": description[:380],
             "tags": [],
             "alt_text": f"{label} — {lead_kw} aesthetic photography"[:200],
