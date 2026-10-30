@@ -25,6 +25,7 @@ from tools.visions_ai import (
     request_stop as vf_request_stop,
     request_start as vf_request_start,
 )
+from tools import run_control
 from sheets.trends import init_trend_tabs
 from tools.trend_feeder import trend_feeder_loop
 from trend_routes import router as trend_router
@@ -126,6 +127,17 @@ scheduler = AsyncIOScheduler(timezone="America/New_York")
 
 # ── Mastermind Job ─────────────────────────────────────────────────────────────
 async def mastermind_scheduled_job(trigger: str):
+    # ── GLOBAL STOP gate ─────────────────────────────────────────────────────
+    # Scheduled pin slots: STOP laga ho toh poora cycle skip — koi Gemini
+    # call nahi, koi generation nahi. Manual Run (app ka button) owner ka
+    # resume signal hai, isliye woh stop saaf karke aage badhta hai.
+    if trigger.startswith("manual"):
+        if run_control.is_stopped():
+            run_control.clear_stop()
+            logger.info("▶️ [Scheduler] Manual run — STOP saaf, system resume.")
+    elif run_control.is_stopped():
+        logger.info(f"⏸️ [Scheduler] STOP active hai — {trigger} skip.")
+        return
     if state["mastermind_running"]:
         logger.warning(f"⚠️ Mastermind already running. Skipping {trigger}")
         return
@@ -181,6 +193,10 @@ def schedule_daily_pins(force: bool = False):
     A brand-new plan is made only for a new day (midnight cron, force=True)
     or when no saved plan exists.
     """
+    if force and run_control.is_stopped():
+        # Naya din = naya mauka: kal ka STOP naye plan par carry nahi hoga.
+        run_control.clear_stop()
+        logger.info("▶️ [Scheduler] Naye din ka plan — kal ka STOP saaf kar diya.")
     tz  = scheduler.timezone
     now = datetime.now(tz=tz)
 
@@ -446,8 +462,15 @@ async def run_mm_a2(background_tasks: BackgroundTasks):
 
 @app.post("/api/mastermind/stop")
 async def stop_mastermind():
+    # ASLI STOP (30 Oct 2026): pehle ye sirf ek flag tha jise agla scheduled
+    # job reset kar deta tha. Ab ye global switch hai — scheduler, image
+    # pipeline (retry loop samet) aur vision feeder, teeno rukte hain.
     state["stop_requested"] = True
-    return {"status": "stop_requested", "message": "Stop signal sent. Current cycle will finish gracefully."}
+    run_control.request_stop()
+    vf_request_stop()
+    state["vision_feeder_paused"] = True
+    logger.warning("🛑 [STOP] Owner ne STOP lagaya — pins + feeder sab band.")
+    return {"status": "stopped", "message": "Sab kuch rok diya gaya: scheduled pins skip honge, chal raha upload retry abort hoga, vision feeder bhi band."}
 
 # ── Blog Engine — Standalone Runner ───────────────────────────────────────────
 
@@ -671,6 +694,7 @@ async def dashboard():
         "pins_today":   state["posted_today"],
         "last_action":  state["last_run"] or "—",
         "running":      state["running"],
+        "stopped":      run_control.is_stopped(),
         "vision": {
             "running":         state["vision_feeder_running"],
             "paused":          state["vision_feeder_paused"],
@@ -759,9 +783,25 @@ async def run_a2(background_tasks: BackgroundTasks):
 
 @app.post("/api/stop")
 async def stop_all():
+    # Dashboard ka STOP ALL — /api/mastermind/stop wala hi global switch.
     state["stop_requested"] = True
     state["running"] = False
-    return {"status": "stop_requested"}
+    run_control.request_stop()
+    vf_request_stop()
+    state["vision_feeder_paused"] = True
+    logger.warning("🛑 [STOP ALL] Owner ne dashboard se sab roka — pins + feeder band.")
+    return {"status": "stopped", "message": "Sab kuch rok diya gaya hai. Resume dabane par hi phir chalega (ya naye din ke plan par)."}
+
+
+@app.post("/api/resume")
+async def resume_all():
+    state["stop_requested"] = False
+    state["running"] = True
+    run_control.clear_stop()
+    vf_request_start()
+    state["vision_feeder_paused"] = False
+    logger.info("▶️ [RESUME] Owner ne system resume kiya — pins + feeder phir chalenge.")
+    return {"status": "running", "message": "System resume ho gaya hai."}
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
 @app.post("/api/fetch-products")
