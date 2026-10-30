@@ -391,7 +391,7 @@ async def get_all_stats():
         "posted_today":          state["posted_today"],
         "last_action":           state["last_run"] or "—",
         "last_summary":          state["last_summary"],
-        "vision_feeder_running": state["vision_feeder_running"],
+        "vision_feeder_running": _feeder_running(),
     }
 
 # ── Mastermind Stats ───────────────────────────────────────────────────────────
@@ -597,6 +597,17 @@ async def blog_run_both(background_tasks: BackgroundTasks):
     background_tasks.add_task(_run_both)
     return {"status": "started", "message": "Blog pipeline started for both accounts 🚀"}
 
+def _feeder_running() -> bool:
+    """Vision Feeder asal me chal raha hai ya nahi — visions_ai ke live
+    stats se. (Purana state['vision_feeder_running'] flag kabhi True hota
+    hi nahi tha, isliye API hamesha 'running: false' jhooth bolti thi aur
+    app ka Stop button mara pada tha — 30 Oct 2026 fix.)"""
+    try:
+        return bool(get_vision_stats().get("running"))
+    except Exception:
+        return state["vision_feeder_running"]
+
+
 # ── Vision Feeder Controls ─────────────────────────────────────────────────────
 @app.get("/api/vision/stats")
 async def vision_stats():
@@ -607,8 +618,8 @@ async def vision_stats():
     except Exception:
         prompts_total = 0
     return {
-        "running":          state["vision_feeder_running"],
-        "paused":           state["vision_feeder_paused"],
+        "running":          vs.get("running", False),
+        "paused":           vs.get("paused", state["vision_feeder_paused"]),
         "queue_count":      vs["queue_count"],
         "processed_today":  vs["processed_today"],
         "daily_limit":      vs["daily_limit"],
@@ -696,8 +707,8 @@ async def dashboard():
         "running":      state["running"],
         "stopped":      run_control.is_stopped(),
         "vision": {
-            "running":         state["vision_feeder_running"],
-            "paused":          state["vision_feeder_paused"],
+            "running":         vs.get("running", False),
+            "paused":          vs.get("paused", state["vision_feeder_paused"]),
             "status":          vs["status"],
             "processed_today": vs["processed_today"],
             "daily_limit":     vs["daily_limit"],
@@ -876,7 +887,7 @@ async def chat_endpoint(req: ChatMessage, background_tasks: BackgroundTasks):
         f"A1 strategy: {state['mastermind_a1_strategy']}. "
         f"A2 strategy: {state['mastermind_a2_strategy']}. "
         f"Today posted: {state['posted_today']} pins. "
-        f"Vision Feeder: {'ACTIVE' if state['vision_feeder_running'] else 'INACTIVE'}."
+        f"Vision Feeder: {'ACTIVE' if _feeder_running() else 'INACTIVE'}."
     )
 
     full_prompt = f"{CHAT_SYSTEM_PROMPT}\n\n{sys_ctx}\n\nUser: {msg}"
@@ -968,7 +979,7 @@ async def cmo_chat_endpoint(req: ChatMessage):
         f"Account 1 strategy: {state['mastermind_a1_strategy']}. "
         f"Account 2 strategy: {state['mastermind_a2_strategy']}. "
         f"Pins posted today: {state['posted_today']}. "
-        f"Vision Feeder: {'ACTIVE 🟢' if state['vision_feeder_running'] else 'INACTIVE ⚪'}."
+        f"Vision Feeder: {'ACTIVE 🟢' if _feeder_running() else 'INACTIVE ⚪'}."
     )
 
     full_prompt = f"{CMO_SYSTEM_PROMPT}\n\n[LIVE CONTEXT]: {sys_ctx}\n\n[USER]: {msg}\n\n[CEO MASTERMIND]:"
