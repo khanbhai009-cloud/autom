@@ -897,7 +897,7 @@ HARDCODED_FALLBACK: dict = {
         "visual_style":  "boho_aesthetic_study",
         "niche":         "cozy",  # ← NICHE FOR BOARD SELECTION
         "vibe":          "Golden morning light, rattan chair, gallery wall, trailing pothos, art supplies on oak desk",
-        "title":         "Boho Study Room Ideas: Aesthetic Home Office Corner with Gallery Wall & Plants",
+        "title":         "A sunlit little study corner made for slow mornings",
         "description":   (
             "Warm light pools through sheer curtains and lands on a mess of paint brushes you'll never want to clean up. "
             "The gallery wall tells stories; the trailing pothos reaches toward the window like it knows something you don't. "
@@ -922,7 +922,7 @@ HARDCODED_FALLBACK: dict = {
         "visual_style":  "yellow_creator_flatlay",
         "niche":         "wfh",  # ← NICHE FOR BOARD SELECTION
         "vibe":          "Yellow headphones on MacBook, mustard camera, yellow roses, white linen, golden sidelight",
-        "title":         "Creator Desk Setup Ideas: Yellow Aesthetic Flat Lay Workspace Inspiration",
+        "title":         "A pop of yellow that makes the whole desk feel happier",
         "description":   (
             "Mustard yellow against cool silver — the headphones rest exactly where inspiration left them. "
             "Roses because why not. Camera because always. "
@@ -1057,24 +1057,34 @@ CREATIVE DIRECTION
    - Every detail must push toward editorial magazine quality.
    - MUST end with: 4K ultra HD, photorealistic, highly detailed, award-winning photography
 
-3. COPYWRITING — PINTEREST SEO FIRST (Pinterest is a SEARCH engine, not a feed)
-   - Title: a SEARCHABLE description of THIS exact image — this is what ranks the pin
-     and brings impressions. Rules:
-     * START with the primary keyword phrase a real person types into Pinterest search
-       (build it from the Label + Tags above, e.g. "Cozy Bedroom Ideas",
-       "Small Balcony Garden Decor", "Boho Living Room Inspiration").
-     * Name the ACTUAL subject in the image (room/space/object) + its style/mood words.
-     * Weave in 2-3 genuine search phrases. Keyword-rich beats clever, every time.
-     * NO clickbait. NO first person. BANNED patterns: "I Didn't Know...",
-       "This Made Me...", "You Won't Believe...", "Stop Scrolling", or anything
-       resembling them. Those titles do not rank and must never be used.
-     * Every title must be unique to this pin's content — never reuse a template.
+3. COPYWRITING — WRITE LIKE A HUMAN CREATOR, NOT AN SEO BOT
+   (Owner ka order, 31 Oct 2026: titles robot jaise lagte the — "Cottage
+   Exterior Ideas: Enchanted Spring Cottage with Cherry Blossoms & Pink
+   Window Box" type ke keyword-salad titles BANNED hain. Is channel ke
+   sabse bade pins hamesha insaan-waale ehsaas wale titles par chale hain.)
+   - Title: ONE natural line a real person would tap Save on — the FEELING
+     of THIS exact image in plain, warm words. Rules:
+     * 5-11 words. A small emotional statement about the scene: wonder,
+       comfort, softness, longing. First person is WELCOME — "I didn't know
+       a morning could look like this" is this channel's #1 pin ever.
+     * The scene's real nouns appear ONCE, naturally (cottage, cherry
+       blossoms, window box, balcony) — that is all the search value a
+       title needs. No stuffing, no keyword lists, ever.
+     * BANNED robot shapes (never use, in any variation):
+       - "<Label> Ideas:" or ANY "<keywords>:" colon prefix
+       - "Inspiration for Your Home", "You'll Want to Save", "Best X Ideas"
+       - keyword chains joined with "&" or stacked commas
+       - Title Case On Every Single Word, like a product listing
+     * Vary the shape every pin: a wonder statement, a soft first-person
+       line, a sensory fragment, a "the kind of ... that ..." line.
      Good shapes (adapt to THIS image, do not copy):
-       "Cozy Bedroom Ideas: Pastel Decor with Fairy Lights & Soft Textures"
-       "Small Balcony Garden Ideas — Boho Corner with Hanging Plants"
-   - Description: 2-3 sentences. Sensory pull (one texture, one light quality,
-     one feeling) AND naturally weave 2-3 search keywords from the title/tags so
-     the pin ranks for them. Make the reader FEEL the image — in searchable words.
+       "A fairytale cottage wrapped in cherry blossoms"
+       "I didn't know a morning could look like this"
+       "The kind of little balcony that makes you slow down"
+       "Some corners just feel like a deep breath"
+   - Description: 2-3 sentences, the way a person describes a place they
+     love: sensory pull (one texture, one light quality, one feeling).
+     The scene's real words belong naturally — never stuff keywords.
 
 4. TAGS: CamelCase, no hashtag symbol, exactly 5, SEO-optimized for Pinterest discoverability.
    Base tags to use/remix: {json.dumps(tags)}
@@ -1087,7 +1097,7 @@ OUTPUT FORMAT (JSON only — no other text before or after)
   "strategy": "<brief name for this specific creative direction>",
   "visual_style": "{forced_style_key}",
   "vibe": "<1-line art direction mood summary, max 80 chars>",
-  "title": "<SEO keyword title describing THIS image, starts with primary search phrase, max 90 chars>",
+  "title": "<one natural human-feel line about THIS image's feeling, 5-11 words, max 90 chars>",
   "description": "<sensory lifestyle copy, 2-3 sentences, zero products/CTAs/prices, max 380 chars>",
   "tags": ["<Tag1>", "<Tag2>", "<Tag3>", "<Tag4>", "<Tag5>"],
     "board_keywords": ["<kw1>", "<kw2>", "<kw3>", "<kw4>"],
@@ -1140,10 +1150,14 @@ import zlib
 
 _TITLE_HISTORY_PATH = os.path.join("data", "title_history.json")
 _TITLE_HISTORY_KEEP = 40
-_CLICKBAIT_RE = re.compile(
-    r"^(i didn'?t know|i did not know|this .{0,40}made me|you won'?t believe|"
-    r"stop scrolling|this is what .{0,30}actually looks like|"
-    r"this .{0,30}changed how i think)",
+# ROBOT title detector (31 Oct 2026 — purana _CLICKBAIT_RE ulta chalta tha:
+# woh EHSAAS wale titles ko ban karke SEO-templates ghusa deta tha. Ab
+# guard ROBOT shapes ko pakadta hai: "X Ideas:" colon-prefix, keyword
+# stuffing wale subtitle, "Inspiration for Your Home" type ke templates.)
+_ROBOT_TITLE_RE = re.compile(
+    r"(\bideas\s*:|inspiration for your home|you'?ll want to save|"
+    r"^best .{0,40}\bideas\b|decor ideas\s*&\s*inspiration|"
+    r"^(?!POV\b)[A-Z][^:]{2,34}:\s+\S)",
     re.IGNORECASE,
 )
 
@@ -1158,14 +1172,18 @@ def _humanize_keyword(raw: str) -> str:
                     for i, w in enumerate(words))
 
 
-def _seo_title(label: str, tags: list, niche: str = "", seed: int = 0) -> str:
+def _human_title(label: str, tags: list, niche: str = "", seed: int = 0) -> str:
     """
-    Deterministic keyword title built from the pin's OWN row data.
-    Label khud keyword-rich hota hai ('Dreamy Pastel Garden Bedroom');
-    tags/niche se doosra search phrase joda jata hai. Templates seed se
-    rotate hote hain taaki lagatar pins ke title-shapes bhi na takrayen.
+    Deterministic HUMAN-FEEL title, pin ke OWN row data se (31 Oct 2026 —
+    purane _seo_title ke robot templates owner ko pasand nahi aaye).
+    Label scene ka naam hai ('Enchanted Spring Cottage'); usi ko ek
+    insaan-waali line me badalte hain. Tag se kabhi kabhi ek asli visual
+    element ("cherry blossoms") natural jagah par jod dete hain — keyword
+    stuffing kabhi nahi. Templates seed se rotate hote hain.
     """
-    label = " ".join(str(label or "").split()) or "Cozy Home Decor"
+    label = " ".join(str(label or "").split()) or "Cozy Little Corner"
+    label_lc = label.lower()  # beech-wakya me pura chhota — insaan aise hi likhta hai
+    art = "An" if label_lc[:1] in "aeiou" else "A"
     kws = []
     for t in (tags or []):
         h = _humanize_keyword(t)
@@ -1174,15 +1192,19 @@ def _seo_title(label: str, tags: list, niche: str = "", seed: int = 0) -> str:
     niche_kw = _humanize_keyword(str(niche or "").split(",")[0])
     if niche_kw and niche_kw.lower() not in label.lower() and niche_kw not in kws:
         kws.append(niche_kw)
-    kw1 = kws[0] if len(kws) > 0 else "Aesthetic"
-    kw2 = kws[1] if len(kws) > 1 else "Home Decor"
+    kw1 = kws[0] if kws else ""
     templates = [
-        f"{label} Ideas: {kw1} Inspiration for Your Home",
-        f"{kw1} {label} — {kw2} Decor Ideas & Inspiration",
-        f"{label}: {kw1} Style Ideas You'll Want to Save",
-        f"Best {label} Ideas with {kw1} Details",
-        f"{kw1} {label} Inspiration — Cozy {kw2} Vibes",
+        f"{art} {label_lc} I'd never want to leave",
+        f"This {label_lc} feels straight out of a storybook",
+        f"The kind of {label_lc} that makes you slow down",
+        f"Falling a little in love with this {label_lc}",
+        f"{label} — and somehow the whole day feels softer",
+        f"POV: you found the {label_lc} from your dreams",
+        f"Some places just feel like home — this {label_lc} is one of them",
     ]
+    if kw1:
+        templates.append(f"{label} wrapped in {kw1.lower()}")
+        templates.append(f"{art} {label_lc} with {kw1.lower()} doing all the talking")
     title = templates[abs(seed) % len(templates)]
     title = re.sub(r"\b(\w+) \1\b", r"\1", title, flags=re.IGNORECASE)  # 'Decor Decor' → 'Decor'
     if len(title) > 95:  # Pinterest title limit ~100 chars
@@ -1221,12 +1243,13 @@ def _remember_title(account_key: str, title: str) -> None:
 def _ensure_unique_title(account_key: str, result: dict,
                          sheet_row: dict = None, niche: str = "") -> dict:
     """
-    Guard har result par: title clickbait-pattern wala hai YA pichhle
-    {_TITLE_HISTORY_KEEP} titles me repeat hai → usi pin ke row data se
-    SEO title bana kar badal do. Final title history me yaad rakho.
+    Guard har result par: title ROBOT-pattern wala hai (SEO template /
+    keyword stuffing) YA pichhle {_TITLE_HISTORY_KEEP} titles me repeat
+    hai → usi pin ke row data se human-feel title bana kar badal do.
+    Final title history me yaad rakho.
     """
     title = str(result.get("title", "")).strip()
-    banned = bool(_CLICKBAIT_RE.match(title))
+    banned = bool(_ROBOT_TITLE_RE.search(title))
     repeat = bool(title) and _title_seen(account_key, title)
     if banned or repeat or not title:
         if sheet_row:
@@ -1238,9 +1261,9 @@ def _ensure_unique_title(account_key: str, result: dict,
             raw_tags = result.get("tags", []) or []
             row_niche = niche or str(result.get("niche", ""))
         seed = zlib.crc32(f"{account_key}|{label}|{title}".encode("utf-8"))
-        new_title = _seo_title(label, raw_tags, row_niche, seed=seed)
+        new_title = _human_title(label, raw_tags, row_niche, seed=seed)
         logger.warning(
-            f"   [{account_key}] Title guard: {'CLICKBAIT' if banned else 'REPEAT'} "
+            f"   [{account_key}] Title guard: {'ROBOT' if banned else 'REPEAT'} "
             f"title badla → '{new_title}' (purana: '{title[:50]}')"
         )
         result["title"] = new_title
@@ -1297,9 +1320,9 @@ def _build_from_style_data(forced_style: str, ratio: str, niche: str, account_ke
     if "4K ultra HD" not in visual_prompt:
         visual_prompt += ", 4K ultra HD, photorealistic, highly detailed, award-winning photography"
 
-    # SEO title — is ROW ke apne label/tags/niche se (clickbait templates
-    # 30 Oct 2026 ko hata diye gaye; har row ka title usi ki content se banta hai)
-    title = _seo_title(
+    # Human-feel title — is ROW ke apne label/tags se (31 Oct 2026: SEO
+    # robot templates owner ke order par hata diye; title insaan-waala ehsaas)
+    title = _human_title(
         label, tags, niche,
         seed=zlib.crc32(f"{account_key}|{forced_style}|{label}".encode("utf-8")),
     )
