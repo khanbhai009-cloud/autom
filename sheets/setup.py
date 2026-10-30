@@ -20,6 +20,8 @@ REQUIRED_SHEETS: dict[str, list] = {
     # Analytics tabs intentionally NOT required — analytics was removed
     # from the pipeline (owner, 30 Oct 2026); direction comes from Trends.
     "Schedule_State":  ["key", "value"],
+    # App settings (owner controls from the Pins app — e.g. vision_daily_limit)
+    "Settings":        ["key", "value"],
     # V4 Product Router — owner-managed product registry + decision log.
     # Owner workflow: list the product on Gumroad, then add ONE row here
     # (url + description/guide + keywords). The router reads this tab.

@@ -590,6 +590,7 @@ async def vision_stats():
         "processed_today":  vs["processed_today"],
         "daily_limit":      vs["daily_limit"],
         "drive_done_total": vs.get("drive_done_total", 0),
+        "drive_pending":    vs.get("drive_pending", 0),
         "prompts_total":    prompts_total,
         "last_file":        vs["last_file"],
         "last_time":        vs["last_time"],
@@ -609,6 +610,83 @@ async def vision_start():
     state["vision_feeder_paused"] = False
     logger.info("👁️ Vision Feeder resumed via dashboard.")
     return {"status": "running", "message": "Vision Feeder resumed."}
+
+
+# ── Vision Settings — DYNAMIC daily limit (Pins app se control) ─────────────
+class VisionSettingsIn(BaseModel):
+    daily_limit: int
+
+
+@app.get("/api/vision/settings")
+async def vision_settings_get():
+    """Vision feeder ki current settings — limit Settings sheet se (dynamic)."""
+    from tools.visions_ai import get_daily_limit
+    return {"daily_limit": get_daily_limit(), "default": 20, "min": 1, "max": 100}
+
+
+@app.post("/api/vision/settings")
+async def vision_settings_set(body: VisionSettingsIn):
+    """
+    Daily image limit set karo (1–100). Settings sheet me save hota hai —
+    feeder agle cycle se nayi limit use karega, bina restart ke.
+    """
+    from sheets.settings import set_setting
+    from tools.visions_ai import get_daily_limit
+    limit = max(1, min(100, int(body.daily_limit)))
+    if not set_setting("vision_daily_limit", str(limit)):
+        return {"status": "error", "message": "Settings save nahi hui (sheet unreachable)."}
+    logger.info(f"👁️ Vision daily limit app se set hua: {limit}/day")
+    return {"status": "ok", "daily_limit": get_daily_limit()}
+
+
+# ── Dashboard — app ke home tab ke liye EK call me saara real data ─────────
+@app.get("/api/dashboard")
+async def dashboard():
+    """
+    Pins app Dashboard: pins aaj, vision ki asli sthiti (Drive pending /
+    processed / prompts ready / aaj ki limit progress), agla pin (IST),
+    kits ki ginti — sab ek hi response me.
+    """
+    vs = get_vision_stats()
+    try:
+        from sheets.prompts_master import get_prompts_master
+        prompts_total = len(get_prompts_master())
+    except Exception:
+        prompts_total = 0
+    try:
+        from mastermind.product_router import get_products
+        kits_total = len(get_products())  # router ke active kits (sheet se)
+        kits_active = kits_total
+    except Exception:
+        kits_active = kits_total = 0
+    next_pin = "—"
+    try:
+        jobs = scheduler.get_jobs()
+        upcoming = [j.next_run_time for j in jobs if j.next_run_time]
+        if upcoming:
+            next_pin = min(upcoming).astimezone(_IST).strftime("%I:%M %p")
+    except Exception:
+        pass
+    return {
+        "pins_today":   state["posted_today"],
+        "last_action":  state["last_run"] or "—",
+        "running":      state["running"],
+        "vision": {
+            "running":         state["vision_feeder_running"],
+            "paused":          state["vision_feeder_paused"],
+            "status":          vs["status"],
+            "processed_today": vs["processed_today"],
+            "daily_limit":     vs["daily_limit"],
+            "drive_pending":   vs.get("drive_pending", 0),
+            "drive_done_total": vs.get("drive_done_total", 0),
+            "prompts_total":   prompts_total,
+            "last_file":       vs["last_file"],
+            "last_time":       vs["last_time"],
+        },
+        "kits_active": kits_active,
+        "kits_total":  kits_total,
+        "next_pin_ist": next_pin,
+    }
 
 # ── Force Pin + Blog (bypasses daily blog limit) ───────────────────────────────
 

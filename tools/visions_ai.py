@@ -197,7 +197,22 @@ def move_file_in_drive(file_id: str, old_parent: str, new_parent: str):
         fields='id, parents'
     ).execute()
 
-DAILY_IMAGE_LIMIT = 10
+DAILY_IMAGE_LIMIT = 20  # DEFAULT — asal limit Settings sheet se aati hai (niche dekho)
+
+
+def get_daily_limit() -> int:
+    """
+    Vision feeder ki daily image limit — DYNAMIC (owner, 30 Oct 2026):
+    Pins app se Settings sheet (`vision_daily_limit`) me set hoti hai,
+    yahan har call par (60s cache ke saath) padhi jati hai — app me limit
+    badlo, agle feeder cycle se lagu, bina restart/redeploy.
+    Sheet down ho toh default 20. Range 1–100.
+    """
+    try:
+        from sheets.settings import get_int_setting
+        return get_int_setting("vision_daily_limit", DAILY_IMAGE_LIMIT, 1, 100)
+    except Exception:
+        return DAILY_IMAGE_LIMIT
 _today_count = {"date": None, "count": 0}
 
 # ── Drive processed-folder count cache (TTL 5 min) ─────────────────────────
@@ -228,6 +243,37 @@ def _get_drive_processed_count() -> int:
     except Exception as e:
         logging.warning(f"⚠️ Drive processed count failed: {e}")
         return _drive_done_cache["count"]
+
+# ── Drive input-folder pending count cache (TTL 5 min) ────────────────────
+_drive_pending_cache = {"count": 0, "ts": 0.0}
+
+
+def count_drive_pending() -> int:
+    """
+    Drive ke INPUT folder me kitni images process hone ke liye baaki hain —
+    dashboard ka "Drive me kitni images hai" wala asli number.
+    TTL-cached (5 min), sirf image files gin ti hai (_is_image filter).
+    """
+    import time as _time
+    now = _time.monotonic()
+    if drive_service is None:
+        return 0
+    if (now - _drive_pending_cache["ts"]) < _DRIVE_DONE_TTL:
+        return _drive_pending_cache["count"]
+    try:
+        res = drive_service.files().list(
+            q=f"'{DRIVE_INPUT_FOLDER_ID}' in parents and trashed=false",
+            pageSize=1000,
+            fields="files(id, name, mimeType)"
+        ).execute()
+        count = sum(1 for f in res.get("files", []) if _is_image(f))
+        _drive_pending_cache["count"] = count
+        _drive_pending_cache["ts"]    = now
+        return count
+    except Exception as e:
+        logging.warning(f"⚠️ Drive pending count failed: {e}")
+        return _drive_pending_cache["count"]
+
 
 # ── Stop / Start Control Flag ──────────────────────────────────────────────
 _stop_flag = {"value": False}
@@ -260,8 +306,10 @@ _vision_stats = {
 def get_vision_stats() -> dict:
     """Dashboard ke liye live stats return karo."""
     _vision_stats["processed_today"] = _get_today_processed()
-    _vision_stats["daily_limit"]     = DAILY_IMAGE_LIMIT
+    _vision_stats["daily_limit"]     = get_daily_limit()
     _vision_stats["drive_done_total"] = _get_drive_processed_count()
+    _vision_stats["drive_pending"]   = count_drive_pending()
+    _vision_stats["queue_count"]     = _vision_stats["drive_pending"]
     return dict(_vision_stats)
 
 # ── Internal Helpers ───────────────────────────────────────────────────────
@@ -299,15 +347,17 @@ def run_feeder_agent():
         _vision_stats["status"] = "disabled"
         return 0
 
-    # Daily limit check
+    # Daily limit check — limit DYNAMIC hai (Settings sheet, app se set)
+    daily_limit = get_daily_limit()
     done_today = _get_today_processed()
     _vision_stats["processed_today"] = done_today
-    if done_today >= DAILY_IMAGE_LIMIT:
-        logging.info(f"🛑 Daily limit reached ({DAILY_IMAGE_LIMIT} images). Sleeping 24 hours.")
+    _vision_stats["daily_limit"] = daily_limit
+    if done_today >= daily_limit:
+        logging.info(f"🛑 Daily limit reached ({daily_limit} images). Sleeping 24 hours.")
         _vision_stats["status"] = "limit_reached"
         return -3  # Caller must sleep 24 hours
 
-    remaining = DAILY_IMAGE_LIMIT - done_today
+    remaining = daily_limit - done_today
     _vision_stats["status"] = "scanning"
 
     # Check Drive for images
@@ -343,7 +393,7 @@ def run_feeder_agent():
         _vision_stats["status"] = "idle"
         return 0
 
-    logging.info(f"🚀 Found {len(images)} images | Processed today: {done_today}/{DAILY_IMAGE_LIMIT}")
+    logging.info(f"🚀 Found {len(images)} images | Processed today: {done_today}/{daily_limit}")
     _vision_stats["status"] = "processing"
 
     processed_count = 0
@@ -395,7 +445,7 @@ def run_feeder_agent():
             _vision_stats["queue_count"]     = max(0, _vision_stats["queue_count"] - 1)
             _vision_stats["status"]          = "processing"
 
-            logging.info(f"✅ Today: {_get_today_processed()}/{DAILY_IMAGE_LIMIT} images done.")
+            logging.info(f"✅ Today: {_get_today_processed()}/{get_daily_limit()} images done.")
             logging.info("⏳ Waiting 30 seconds for next scan (Rate Limit Safety)...")
             time.sleep(30)
 
