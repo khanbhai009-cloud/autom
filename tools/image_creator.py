@@ -1,1 +1,495 @@
-IiIiCnRvb2xzL2ltYWdlX2NyZWF0b3IucHkg4oCUIFRyaXBsZS1MYXllciBUMkkgSW1hZ2UgUGlwZWxpbmUgIFtWQVJJRVRZIEVOR0lORSB2NCDigJQgQ0xFQU4gJiBPUFRJTUlaRURdCgpNT0RFTFMgKGluIG9yZGVyKToKICAxLiBDbG91ZGZsYXJlICAgICDigJQgQGNmL2JsYWNrLWZvcmVzdC1sYWJzL2ZsdXgtMS1zY2huZWxsIChQcmltYXJ5KQogIDIuIEh1Z2dpbmcgRmFjZSAgIOKAlCBibGFjay1mb3Jlc3QtbGFicy9GTFVYLjEtc2NobmVsbCAoU2Vjb25kYXJ5IGZhbGxiYWNrKQogIDMuIFBvbGxpbmF0aW9ucyAgIOKAlCBmcmVlLCBVUkwtYmFzZWQgKExhc3QgcmVzb3J0IGZhbGxiYWNrKQoKVkFSSUVUWSBFTkdJTkUgdjQg4oCUIFdoYXQgY2hhbmdlZCBmcm9tIHYzOgogIFJFTU9WRUQgKHdlcmUgaHVydGluZyBxdWFsaXR5KToKICAgIOKclyBfQ0FNRVJBX0xFTlNFUyAgICDigJQgRmx1eCBTY2huZWxsIGlnbm9yZXMgcmVhbCBjYW1lcmEgc3BlY3MsIHByb2R1Y2VzIGdhcmJhZ2UKICAgIOKclyBfRURJVE9SSUFMX1NUWUxFICDigJQgIkFyY2hpdGVjdHVyYWwgRGlnZXN0IGVkaXRvcmlhbCIgaGFzIHplcm8gZWZmZWN0IG9uIG1vZGVsCiAgICDinJcgX0NPTE9SX0FDQ0VOVFMgICAg4oCUIENvbmZsaWN0cyB3aXRoIHByb21wdHMgbWFzdGVyIHdoaWNoIGFscmVhZHkgc2V0cyBjb2xvcnMKICAgIOKclyBfVEVYVFVSRV9ERVRBSUxTICDigJQgT3Zlci1zcGVjaWZpY2F0aW9uIG92ZXJ3aGVsbXMgdGhlIG1vZGVsCiAgICDinJcgX1RJTUVfT0ZfREFZICAgICAg4oCUIFJlZHVuZGFudCwgYWxyZWFkeSBjb3ZlcmVkIGJ5IF9MSUdIVElOR19NT09EUwoKICBLRVBUIChnZW51aW5lbHkgdXNlZnVsKToKICAgIOKckyBfQ0FNRVJBX0FOR0xFUyAgICDigJQgRnJlc2ggcGVyc3BlY3RpdmUgZXZlcnkgcGluCiAgICDinJMgX0xJR0hUSU5HX01PT0RTICAg4oCUIENvbnRyb2xzIGJyaWdodG5lc3MgJiBtb29kIHdlbGwKICAgIOKckyBfQ09NUF9TVFlMRVMgICAgICDigJQgR2l2ZXMgY29tcG9zaXRpb24gdmFyaWV0eQogICAg4pyTIF9TRUFTT05TX1dFQVRIRVIgIOKAlCBCYWNrZ3JvdW5kIGNvbnRleHQgdmFyaWV0eQoKICBSRVNVTFQ6IFByb21wdCBzdGF5cyB+MzUwLTQ1MCBjaGFycyAod2FzIGJsb2F0aW5nIHRvIDkwMCkuCiAgICAgICAgICBNb2RlbCBnZXRzIGNsZWFyIHNpZ25hbCDihpIgc2hhcnBlciwgY2xlYW5lciwgb24tdGhlbWUgb3V0cHV0LgoKUkFUSU8gU1VQUE9SVDoKICDigKIgOToxNiBwb3J0cmFpdCDihpIgMTA4MHgxOTIwICAocHJpbWFyeSwgUGludGVyZXN0LW5hdGl2ZSkKICDigKIgMToxIHNxdWFyZSAgICDihpIgMTA4MHgxMDgwICAoYWx0ZXJuYXRlLCBjYXJvdXNlbC1mcmllbmRseSkKIiIiCgppbXBvcnQgYXN5bmNpbwppbXBvcnQgYmFzZTY0CmltcG9ydCBsb2dnaW5nCmltcG9ydCBvcwppbXBvcnQgcmFuZG9tCmltcG9ydCB1cmxsaWIucGFyc2UKZnJvbSB0eXBpbmcgaW1wb3J0IE9wdGlvbmFsCgppbXBvcnQgaHR0cHgKCmZyb20gY29uZmlnIGltcG9ydCAoCiAgICBJTUdCQl9BUElfS0VZLAogICAgQ0xPVURGTEFSRV9BQ0NPVU5UX0lELAogICAgQ0xPVURGTEFSRV9BUElfVE9LRU4sCiAgICBDTE9VREZMQVJFX0lNQUdFX01PREVMLAogICAgUE9MTElOQVRJT05TX01PREVMCikKCmxvZ2dlciA9IGxvZ2dpbmcuZ2V0TG9nZ2VyKF9fbmFtZV9fKQoKIyDilIDilIAgSHVnZ2luZ0ZhY2UgdG9rZW4gZnJvbSBlbnYg4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSACkhGX0FQSV9UT0tFTiA9IG9zLmVudmlyb24uZ2V0KCJIRl9UT0tFTiIsICIiKQoKIyDilIDilIAgQ29uc3RhbnRzIOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgApfQ0FMTF9USU1FT1VUICAgICAgICA9IDE4MApfQ0ZfUkVUUllfREVMQVkgICAgICA9IDQwICAgIyBDbG91ZGZsYXJlOiA0MHMgd2FpdCBiZXR3ZWVuIHJldHJpZXMgKEdQVSBvdmVybG9hZCBuZWVkcyB0aW1lKQpfSEZfUkVUUllfREVMQVkgICAgICA9IDMwICAgIyBIdWdnaW5nRmFjZTogMzBzIHdhaXQgYmV0d2VlbiByZXRyaWVzCl9QT0xMX1JFVFJZX0RFTEFZICAgID0gMTAgICAjIFBvbGxpbmF0aW9uczogMTBzIHdhaXQgYmV0d2VlbiByZXRyaWVzCl9NSU5fVkFMSURfQllURVMgICAgID0gNV8wMDAKX0NGX01BWF9SRVRSSUVTICAgICAgPSAyCl9IRl9NQVhfUkVUUklFUyAgICAgID0gMgpfUE9MTF9NQVhfUkVUUklFUyAgICA9IDIKCl9SQVRJT19ESU1TID0gewogICAgIjk6MTYiOiAoMTA4MCwgMTkyMCksCiAgICAiMToxIjogICgxMDgwLCAxMDgwKSwKfQoKX1BPTExJTkFUSU9OU19CQVNFID0gImh0dHBzOi8vaW1hZ2UucG9sbGluYXRpb25zLmFpL3Byb21wdCIKX0hGX0ZMVVhfVVJMICAgICAgID0gImh0dHBzOi8vYXBpLWluZmVyZW5jZS5odWdnaW5nZmFjZS5jby9tb2RlbHMvYmxhY2stZm9yZXN0LWxhYnMvRkxVWC4xLXNjaG5lbGwiCgojIOKUgOKUgCBOZWdhdGl2ZSBwcm9tcHQg4oCUIGFsd2F5cyBhcHBlbmRlZCB0byBibG9jayBnYXJiYWdlIG91dHB1dHMg4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSACl9ORUdBVElWRV9QUk9NUFQgPSAoCiAgICAidWdseSwgYmx1cnJ5LCB3YXRlcm1hcmssIHRleHQgb3ZlcmxheSwgbG9nbywgc2lnbmF0dXJlLCAiCiAgICAiY2FydG9vbiwgYW5pbWUsIGlsbHVzdHJhdGlvbiwgZHJhd2luZywgcGFpbnRpbmcsIENHSSBwbGFzdGljLCAiCiAgICAib3ZlcmV4cG9zZWQsIHVuZGVyZXhwb3NlZCwgbG93IHF1YWxpdHksIGpwZWcgYXJ0aWZhY3RzLCAiCiAgICAiZGlzdG9ydGVkLCBkZWZvcm1lZCwgZHVwbGljYXRlLCBjcm9wcGVkLCBmcmFtZSwgYm9yZGVyLCAiCiAgICAiZGFyaywgbW9vZHksIG5vaXIsIGRlc2F0dXJhdGVkLCBnbG9vbXksIGRlcHJlc3NpbmciCikKCiMg4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQCiMgVkFSSUVUWSBFTkdJTkUgdjQg4oCUIDQgZm9jdXNlZCBwb29scyBvbmx5CiMgUHJvbXB0cyBtYXN0ZXIgYWxyZWFkeSBoYW5kbGVzOiBzdWJqZWN0LCBjb2xvcnMsIHByb3BzLCBzdHlsZSBkZXRhaWxzCiMgVGhlc2UgcG9vbHMgb25seSBhZGQ6IGFuZ2xlLCBsaWdodCwgY29tcG9zaXRpb24sIHNlYXNvbiDigJQgbm90aGluZyBtb3JlCiMg4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQCgpfQ0FNRVJBX0FOR0xFUyA9IFsKICAgICJleWUtbGV2ZWwgbGlmZXN0eWxlIHNob3QiLAogICAgInNsaWdodCBoaWdoIGFuZ2xlIGxvb2tpbmcgaW50byByb29tIiwKICAgICJsb3cgYW5nbGUgZW1waGFzaXppbmcgaGVpZ2h0IG9mIHNwYWNlIiwKICAgICJzdHJhaWdodC1vbiBzeW1tZXRyaWNhbCBhcmNoaXRlY3R1cmFsIHNob3QiLAogICAgInRocmVlLXF1YXJ0ZXIgYW5nbGUgc2hvd2luZyByb29tIGRlcHRoIiwKICAgICJkaWFnb25hbCBmb3JlZ3JvdW5kIHByb3AgZnJhbWluZyBzaG90IiwKICAgICJ3aWRlIGVzdGFibGlzaGluZyBpbnRlcmlvciBzaG90IiwKICAgICJpbnRpbWF0ZSBjbG9zZS11cCBkZXRhaWwgYW5kIHRleHR1cmUgc2hvdCIsCiAgICAib3Zlci10aGUtc2hvdWxkZXIgbGlmZXN0eWxlIHBlcnNwZWN0aXZlIiwKICAgICJjb3JuZXIgYW5nbGUgc2hvd2luZyB0d28gd2FsbHMgZm9yIGRlcHRoIiwKXQoKX0xJR0hUSU5HX01PT0RTID0gWwogICAgImJyaWdodCBzb2Z0IG1vcm5pbmcgd2luZG93IGxpZ2h0IiwKICAgICJ3YXJtIGdvbGRlbiBob3VyIGFmdGVybm9vbiBzdW5saWdodCBzdHJlYW1pbmcgaW4iLAogICAgImRpZmZ1c2VkIGJyaWdodCBkYXlsaWdodCwgemVybyBoYXJzaCBzaGFkb3dzIiwKICAgICJnZW50bGUgZGFwcGxlZCBzdW5saWdodCB0aHJvdWdoIHNoZWVyIGN1cnRhaW5zIiwKICAgICJjcmlzcCBjbGVhbiBtaWQtbW9ybmluZyBicmlnaHQgbGlnaHQiLAogICAgIndhcm0gYW1iaWVudCB3aXRoIHNvZnQgd2luZG93IGZpbGwiLAogICAgImJyaWdodCBhaXJ5IHNwcmluZyBkYXlsaWdodCwgaGlnaCBrZXkiLAogICAgInNvZnQgc2lkZSB3aW5kb3cgbGlnaHQgd2l0aCBnZW50bGUgZmlsbCIsCiAgICAiY2hlZXJmdWwgc3VubnkgYWZ0ZXJub29uIGludGVyaW9yIGxpZ2h0IiwKICAgICJ3YXJtIGNvenkgbGFtcCBsaWdodCBjb21wbGVtZW50aW5nIGRheWxpZ2h0IiwKXQoKX0NPTVBfU1RZTEVTID0gWwogICAgInJ1bGUgb2YgdGhpcmRzIHdpdGggc3Ryb25nIGZvcmVncm91bmQgcHJvcCIsCiAgICAicGVyZmVjdCBjZW50ZXJlZCBzeW1tZXRyeSwgaW50ZXJpb3IgYXJjaGl0ZWN0dXJlIiwKICAgICJsZWFkaW5nIGxpbmVzIGRyYXdpbmcgZXllIHRocm91Z2ggcm9vbSBkZXB0aCIsCiAgICAibGF5ZXJlZCBkZXB0aDogY2xvc2UgcHJvcHMsIG1pZCBmdXJuaXR1cmUsIGJhY2tncm91bmQgd2FsbCIsCiAgICAiZm9yZWdyb3VuZCBib2tlaCBmbG93ZXIgb3IgcGxhbnQgZnJhbWluZyBzdWJqZWN0IiwKICAgICJ3aWRlIGVzdGFibGlzaGluZyByb29tIGNvbnRleHQgc2hvdCIsCiAgICAidGlnaHQgZGV0YWlsIGNyb3AgaXNvbGF0aW5nIHNpbmdsZSBiZWF1dGlmdWwgcHJvcCIsCiAgICAicy1jdXJ2ZSBuYXR1cmFsIGZsb3cgY29tcG9zaXRpb24iLAogICAgImZyYW1lZCB3aXRoaW4gZG9vcndheSBvciB3aW5kb3cgYXJjaCIsCiAgICAibmVnYXRpdmUgc3BhY2UgbWluaW1hbGlzbSB3aXRoIHNpbmdsZSBoZXJvIHByb3AiLApdCgpfU0VBU09OU19XRUFUSEVSID0gWwogICAgImx1c2ggYnJpZ2h0IHNwcmluZywgY2hlcnJ5IGJsb3Nzb21zIHZpc2libGUgdGhyb3VnaCB3aW5kb3ciLAogICAgIndhcm0gZ29sZGVuIHN1bW1lciwgdmlicmFudCBncmVlbmVyeSBvdXRzaWRlIiwKICAgICJmcmVzaCBzcHJpbmcgbW9ybmluZywgc29mdCBncmVlbiBidWRzIG9uIHRyZWVzIiwKICAgICJicmlnaHQgY2xlYXIgc3VtbWVyIGRheSwgYmx1ZSBza3kgb3V0c2lkZSIsCiAgICAid2FybSBsYXRlIHNwcmluZyBhZnRlcm5vb24sIGZsb3dlcnMgaW4gZnVsbCBibG9vbSIsCiAgICAic3VubnkgZ29sZGVuIGF1dHVtbiwgd2FybSBhbWJlciBsaWdodCIsCiAgICAiZnJlc2ggc3ByaW5nIGFmdGVyIHJhaW4sIGV2ZXJ5dGhpbmcgZ2xpc3RlbmluZyBncmVlbiIsCiAgICAiY2xlYXIgY3Jpc3Agc3VtbWVyIGJsdWUtc2t5IGRheSIsCiAgICAid2FybSBtaWQtc3ByaW5nIGdhcmRlbiB2aXNpYmxlIHRocm91Z2ggd2luZG93IiwKICAgICJicmlnaHQgY2hlZXJmdWwgb3ZlcmNhc3Qgc3ByaW5nIGRpZmZ1c2VkIGxpZ2h0IiwKXQoKCmRlZiBfcGlja192YXJpZXR5X21vZGlmaWVycygpIC0+IGRpY3Q6CiAgICAiIiJQaWNrIG9uZSByYW5kb20gbW9kaWZpZXIgZnJvbSBlYWNoIG9mIHRoZSA0IGZvY3VzZWQgcG9vbHMuIiIiCiAgICByZXR1cm4gewogICAgICAgICJhbmdsZSI6ICAgIHJhbmRvbS5jaG9pY2UoX0NBTUVSQV9BTkdMRVMpLAogICAgICAgICJsaWdodGluZyI6IHJhbmRvbS5jaG9pY2UoX0xJR0hUSU5HX01PT0RTKSwKICAgICAgICAiY29tcCI6ICAgICByYW5kb20uY2hvaWNlKF9DT01QX1NUWUxFUyksCiAgICAgICAgInNlYXNvbiI6ICAgcmFuZG9tLmNob2ljZShfU0VBU09OU19XRUFUSEVSKSwKICAgIH0KCgpkZWYgX2luamVjdF92YXJpZXR5KGJhc2VfcHJvbXB0OiBzdHIpIC0+IHR1cGxlW3N0ciwgZGljdF06CiAgICAiIiIKICAgIEluamVjdCA0IGZvY3VzZWQgdmFyaWV0eSBtb2RpZmllcnMgaW50byB0aGUgYmFzZSBwcm9tcHRzLW1hc3RlciB2aXN1YWxfcHJvbXB0LgogICAgS2VlcHMgdG90YWwgcHJvbXB0IGxlYW4gKH4zNTAtNDUwIGNoYXJzKSBzbyB0aGUgbW9kZWwgc3RheXMgb24tdGhlbWUuCiAgICBSZXR1cm5zIChlbnJpY2hlZF9wcm9tcHQsIG1vZGlmaWVyc191c2VkKSDigJQgbW9kaWZpZXJzIGxvZ2dlZCBmb3IgZGVidWdnaW5nLgogICAgIiIiCiAgICBtb2RzID0gX3BpY2tfdmFyaWV0eV9tb2RpZmllcnMoKQoKICAgIHZhcmlldHlfYmxvY2sgPSAoCiAgICAgICAgZiJ7bW9kc1snYW5nbGUnXX0sIHttb2RzWydsaWdodGluZyddfSwgIgogICAgICAgIGYie21vZHNbJ2NvbXAnXX0sIHttb2RzWydzZWFzb24nXX0iCiAgICApCgogICAgcXVhbGl0eV90YWlsID0gIjRLIHVsdHJhIEhELCBwaG90b3JlYWxpc3RpYywgaGlnaGx5IGRldGFpbGVkLCBhd2FyZC13aW5uaW5nIHBob3RvZ3JhcGh5IgoKICAgICMgU3RyaXAgZXhpc3RpbmcgcXVhbGl0eSB0YWlsIGlmIHByb21wdHMgbWFzdGVyIGFscmVhZHkgYWRkZWQgaXQsIHJlLWFkZCBjbGVhbmx5CiAgICBiYXNlX2NsZWFuID0gYmFzZV9wcm9tcHQucmVwbGFjZShxdWFsaXR5X3RhaWwsICIiKS5yc3RyaXAoIiwgIikuc3RyaXAoKQoKICAgIGVucmljaGVkID0gZiJ7YmFzZV9jbGVhbn0sIHt2YXJpZXR5X2Jsb2NrfSwge3F1YWxpdHlfdGFpbH0iCiAgICByZXR1cm4gZW5yaWNoZWQsIG1vZHMKCgojIOKUgOKUgCBIZWxwZXJzIOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgAoKZGVmIF9lbnJpY2hfcHJvbXB0KHByb21wdDogc3RyLCBtYXhfY2hhcnM6IGludCA9IDYwMCkgLT4gc3RyOgogICAgIiIiRW5zdXJlIHF1YWxpdHkgdGFpbCBwcmVzZW50LCB0aGVuIHRydW5jYXRlLiBWYXJpZXR5IGFscmVhZHkgaW5qZWN0ZWQgdXBzdHJlYW0uIiIiCiAgICBiYXNlID0gcHJvbXB0LnN0cmlwKCkKICAgIGlmICI0SyIgbm90IGluIGJhc2UgYW5kICI0ayIgbm90IGluIGJhc2U6CiAgICAgICAgYmFzZSArPSAiLCA0SyB1bHRyYSBIRCwgcGhvdG9yZWFsaXN0aWMsIGhpZ2hseSBkZXRhaWxlZCwgYXdhcmQtd2lubmluZyBwaG90b2dyYXBoeSIKICAgIHJldHVybiBiYXNlWzptYXhfY2hhcnNdCgoKZGVmIF9nZXRfZGltcyhyYXRpbzogc3RyKSAtPiB0dXBsZVtpbnQsIGludF06CiAgICByZXR1cm4gX1JBVElPX0RJTVMuZ2V0KHJhdGlvLCBfUkFUSU9fRElNU1siOToxNiJdKQoKCmFzeW5jIGRlZiBfZG93bmxvYWRfYnl0ZXModXJsOiBzdHIsIHRpbWVvdXQ6IGludCA9IF9DQUxMX1RJTUVPVVQpIC0+IE9wdGlvbmFsW2J5dGVzXToKICAgIHRyeToKICAgICAgICBhc3luYyB3aXRoIGh0dHB4LkFzeW5jQ2xpZW50KHRpbWVvdXQ9dGltZW91dCwgZm9sbG93X3JlZGlyZWN0cz1UcnVlKSBhcyBjbGllbnQ6CiAgICAgICAgICAgIHJlc3AgPSBhd2FpdCBjbGllbnQuZ2V0KHVybCkKICAgICAgICAgICAgcmVzcC5yYWlzZV9mb3Jfc3RhdHVzKCkKICAgICAgICAgICAgcmV0dXJuIHJlc3AuY29udGVudAogICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOgogICAgICAgIGxvZ2dlci5lcnJvcihmIuKdjCBEb3dubG9hZCBmYWlsZWQgW3t1cmxbOjYwXX1dOiB7ZX0iKQogICAgICAgIHJldHVybiBOb25lCgoKYXN5bmMgZGVmIF91cGxvYWRfdG9faW1nYmIoaW1hZ2VfYnl0ZXM6IGJ5dGVzKSAtPiBPcHRpb25hbFtzdHJdOgogICAgaWYgbm90IElNR0JCX0FQSV9LRVk6CiAgICAgICAgbG9nZ2VyLmVycm9yKCLinYwgW0ltZ0JCXSBJTUdCQl9BUElfS0VZIG5vdCBzZXQuIikKICAgICAgICByZXR1cm4gTm9uZQogICAgZW5jb2RlZCA9IGJhc2U2NC5iNjRlbmNvZGUoaW1hZ2VfYnl0ZXMpLmRlY29kZSgidXRmLTgiKQogICAgbG9nZ2VyLmluZm8oZiLirIbvuI8gIFtJbWdCQl0gVXBsb2FkaW5nIHtsZW4oaW1hZ2VfYnl0ZXMpOix9IGJ5dGVzIChwZXJtYW5lbnQpLi4uIikKICAgIHRyeToKICAgICAgICBhc3luYyB3aXRoIGh0dHB4LkFzeW5jQ2xpZW50KHRpbWVvdXQ9NjApIGFzIGNsaWVudDoKICAgICAgICAgICAgcmVzcCA9IGF3YWl0IGNsaWVudC5wb3N0KAogICAgICAgICAgICAgICAgImh0dHBzOi8vYXBpLmltZ2JiLmNvbS8xL3VwbG9hZCIsCiAgICAgICAgICAgICAgICBkYXRhPXsia2V5IjogSU1HQkJfQVBJX0tFWSwgImltYWdlIjogZW5jb2RlZH0sCiAgICAgICAgICAgICkKICAgICAgICAgICAgcmVzcC5yYWlzZV9mb3Jfc3RhdHVzKCkKICAgICAgICAgICAgdXJsID0gcmVzcC5qc29uKClbImRhdGEiXVsidXJsIl0KICAgICAgICBsb2dnZXIuaW5mbyhmIuKchSBbSW1nQkJdIEhvc3RlZDoge3VybH0iKQogICAgICAgIHJldHVybiB1cmwKICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICBsb2dnZXIuZXJyb3IoZiLinYwgW0ltZ0JCXSBVcGxvYWQgZmFpbGVkOiB7ZX0iKQogICAgICAgIHJldHVybiBOb25lCgoKZGVmIF9pc192YWxpZChpbWFnZV9ieXRlczogT3B0aW9uYWxbYnl0ZXNdKSAtPiBib29sOgogICAgcmV0dXJuIGJvb2woaW1hZ2VfYnl0ZXMpIGFuZCBsZW4oaW1hZ2VfYnl0ZXMpID49IF9NSU5fVkFMSURfQllURVMKCgojIOKUgOKUgCBNb2RlbCAxOiBDbG91ZGZsYXJlIFdvcmtlcnMgQUkgKG11bHRpLW1vZGVsIGNhc2NhZGUpIOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgAoKIyBDYXNjYWRlIG9yZGVyOiBjb25maWcgbW9kZWwgZmlyc3QgKEZMVVguMiBrbGVpbiksIHRoZW4gRkxVWC4xIHNjaG5lbGwuCiMgRkxVWC4yIG1vZGVscyBhY2NlcHQgbXVsdGlwYXJ0L2Zvcm0tZGF0YSBPTkxZIChhIEpTT04gYm9keSBnZXRzIEhUVFAgNDAwKTsKIyBGTFVYLjEgc2NobmVsbCB0YWtlcyB0aGUgY2xhc3NpYyBKU09OIHsicHJvbXB0IjogLi4ufSBwYXlsb2FkLgpfQ0ZfTU9ERUxTID0gbGlzdChkaWN0LmZyb21rZXlzKFsKICAgIENMT1VERkxBUkVfSU1BR0VfTU9ERUwsCiAgICAiQGNmL2JsYWNrLWZvcmVzdC1sYWJzL2ZsdXgtMS1zY2huZWxsIiwKXSkpCgoKYXN5bmMgZGVmIF9jbG91ZGZsYXJlX29uY2UocHJvbXB0OiBzdHIsIHJhdGlvOiBzdHIsIG1vZGVsOiBzdHIpIC0+IE9wdGlvbmFsW2J5dGVzXToKICAgIGlmIG5vdCBDTE9VREZMQVJFX0FDQ09VTlRfSUQgb3Igbm90IENMT1VERkxBUkVfQVBJX1RPS0VOOgogICAgICAgIHJhaXNlIFJ1bnRpbWVFcnJvcigiQ0xPVURGTEFSRV9BQ0NPVU5UX0lEIG9yIENMT1VERkxBUkVfQVBJX1RPS0VOIG5vdCBjb25maWd1cmVkLiIpCgogICAgdywgaCAgICAgPSBfZ2V0X2RpbXMocmF0aW8pCiAgICAjIFJlbW92aW5nIHJlc29sdXRpb24gdGV4dCBmcm9tIHByb21wdCB0byBiZSBzYWZlIGFzIHdlbGwKICAgIGVucmljaGVkID0gX2VucmljaF9wcm9tcHQocHJvbXB0KQoKICAgIHVybCA9ICgKICAgICAgICBmImh0dHBzOi8vYXBpLmNsb3VkZmxhcmUuY29tL2NsaWVudC92NC9hY2NvdW50cy97Q0xPVURGTEFSRV9BQ0NPVU5UX0lEfSIKICAgICAgICBmIi9haS9ydW4ve21vZGVsfSIKICAgICkKCiAgICBoZWFkZXJzID0gewogICAgICAgICJBdXRob3JpemF0aW9uIjogZiJCZWFyZXIge0NMT1VERkxBUkVfQVBJX1RPS0VOfSIsCiAgICAgICAgIlVzZXItQWdlbnQiOiAgICAiTW96aWxsYS81LjAgKFdpbmRvd3MgTlQgMTAuMDsgV2luNjQ7IHg2NCkgQXBwbGVXZWJLaXQvNTM3LjM2IChLSFRNTCwgbGlrZSBHZWNrbykgQ2hyb21lLzEyMC4wLjAuMCBTYWZhcmkvNTM3LjM2IgogICAgfQoKICAgIGFzeW5jIHdpdGggaHR0cHguQXN5bmNDbGllbnQodGltZW91dD1fQ0FMTF9USU1FT1VUKSBhcyBjbGllbnQ6CiAgICAgICAgaWYgImZsdXgtMiIgaW4gbW9kZWw6CiAgICAgICAgICAgICMgRkxVWC4yIChrbGVpbik6IG11bHRpcGFydCBmb3JtIOKAlCBwcm9tcHQgKyB3aWR0aCArIGhlaWdodAogICAgICAgICAgICBmb3JtID0gewogICAgICAgICAgICAgICAgInByb21wdCI6IChOb25lLCBlbnJpY2hlZCksCiAgICAgICAgICAgICAgICAid2lkdGgiOiAgKE5vbmUsIHN0cih3KSksCiAgICAgICAgICAgICAgICAiaGVpZ2h0IjogKE5vbmUsIHN0cihoKSksCiAgICAgICAgICAgIH0KICAgICAgICAgICAgcmVzcCA9IGF3YWl0IGNsaWVudC5wb3N0KHVybCwgaGVhZGVycz1oZWFkZXJzLCBmaWxlcz1mb3JtKQogICAgICAgIGVsc2U6CiAgICAgICAgICAgICMgRkxVWC4xIHNjaG5lbGw6IGNsYXNzaWMgSlNPTiBwYXlsb2FkIChwcm9tcHQgb25seSkKICAgICAgICAgICAgcmVzcCA9IGF3YWl0IGNsaWVudC5wb3N0KAogICAgICAgICAgICAgICAgdXJsLAogICAgICAgICAgICAgICAgaGVhZGVycz17KipoZWFkZXJzLCAiQ29udGVudC1UeXBlIjogImFwcGxpY2F0aW9uL2pzb24ifSwKICAgICAgICAgICAgICAgIGpzb249eyJwcm9tcHQiOiBlbnJpY2hlZH0sCiAgICAgICAgICAgICkKICAgICAgICByZXNwLnJhaXNlX2Zvcl9zdGF0dXMoKQoKICAgICAgICBpZiAiYXBwbGljYXRpb24vanNvbiIgaW4gcmVzcC5oZWFkZXJzLmdldCgiY29udGVudC10eXBlIiwgIiIpLmxvd2VyKCk6CiAgICAgICAgICAgIGRhdGEgICAgPSByZXNwLmpzb24oKQogICAgICAgICAgICBiNjRfc3RyID0gZGF0YS5nZXQoInJlc3VsdCIsIHt9KS5nZXQoImltYWdlIiwgIiIpCiAgICAgICAgICAgIGlmIGI2NF9zdHI6CiAgICAgICAgICAgICAgICByZXR1cm4gYmFzZTY0LmI2NGRlY29kZShiNjRfc3RyKQogICAgICAgICAgICBsb2dnZXIuZXJyb3IoZiLinYwgW0Nsb3VkZmxhcmVdIE5vIGltYWdlIGluIHJlc3BvbnNlOiB7c3RyKGRhdGEpWzoyMDBdfSIpCiAgICAgICAgICAgIHJldHVybiBOb25lCiAgICAgICAgZWxzZToKICAgICAgICAgICAgcmV0dXJuIHJlc3AuY29udGVudAoKCmFzeW5jIGRlZiBfdDJpX2Nsb3VkZmxhcmUocHJvbXB0OiBzdHIsIHJhdGlvOiBzdHIpIC0+IE9wdGlvbmFsW2J5dGVzXToKICAgIGZvciBtb2RlbCBpbiBfQ0ZfTU9ERUxTOgogICAgICAgIHNob3J0ID0gbW9kZWwuc3BsaXQoIi8iKVstMV0KICAgICAgICBmb3IgYXR0ZW1wdCBpbiByYW5nZSgxLCBfQ0ZfTUFYX1JFVFJJRVMgKyAxKToKICAgICAgICAgICAgdHJ5OgogICAgICAgICAgICAgICAgbG9nZ2VyLmluZm8oZiLwn46oIFtDbG91ZGZsYXJlOntzaG9ydH1dIEF0dGVtcHQge2F0dGVtcHR9L3tfQ0ZfTUFYX1JFVFJJRVN9IHwgcmF0aW89e3JhdGlvfSIpCiAgICAgICAgICAgICAgICBpbWcgPSBhd2FpdCBfY2xvdWRmbGFyZV9vbmNlKHByb21wdCwgcmF0aW8sIG1vZGVsKQogICAgICAgICAgICAgICAgaWYgX2lzX3ZhbGlkKGltZyk6CiAgICAgICAgICAgICAgICAgICAgbG9nZ2VyLmluZm8oZiLinIUgW0Nsb3VkZmxhcmU6e3Nob3J0fV0ge2xlbihpbWcpOix9IGJ5dGVzIG9uIGF0dGVtcHQge2F0dGVtcHR9IikKICAgICAgICAgICAgICAgICAgICByZXR1cm4gaW1nCiAgICAgICAgICAgICAgICBsb2dnZXIud2FybmluZyhmIuKaoO+4jyBbQ2xvdWRmbGFyZTp7c2hvcnR9XSBBdHRlbXB0IHthdHRlbXB0fTogaW52YWxpZC90b28gc21hbGwiKQogICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6CiAgICAgICAgICAgICAgICBsb2dnZXIud2FybmluZygKICAgICAgICAgICAgICAgICAgICBmIuKaoO+4jyBbQ2xvdWRmbGFyZTp7c2hvcnR9XSBBdHRlbXB0IHthdHRlbXB0fSBlcnJvcjogIgogICAgICAgICAgICAgICAgICAgIGYie3R5cGUoZSkuX19uYW1lX199OiB7ZSFyfSB8IGNhdXNlPXtlLl9fY2F1c2VfXyFyfSIKICAgICAgICAgICAgICAgICkKCiAgICAgICAgICAgIGlmIGF0dGVtcHQgPCBfQ0ZfTUFYX1JFVFJJRVM6CiAgICAgICAgICAgICAgICBkZWxheSA9IHJhbmRvbS5yYW5kaW50KDMwLCA1MCkKICAgICAgICAgICAgICAgIGxvZ2dlci5pbmZvKGYi4o+zIFtDbG91ZGZsYXJlOntzaG9ydH1dIFdhaXRpbmcge2RlbGF5fXMgYmVmb3JlIHJldHJ5Li4uIikKICAgICAgICAgICAgICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAoZGVsYXkpCgogICAgICAgIGxvZ2dlci5lcnJvcihmIuKdjCBbQ2xvdWRmbGFyZTp7c2hvcnR9XSBBbGwgYXR0ZW1wdHMgZmFpbGVkIOKAlCB0cnlpbmcgbmV4dCBtb2RlbC4iKQoKICAgIGxvZ2dlci5lcnJvcigi4p2MIFtDbG91ZGZsYXJlXSBBbGwgbW9kZWxzIGZhaWxlZCDigJQgbW92aW5nIHRvIEh1Z2dpbmdGYWNlLiIpCiAgICByZXR1cm4gTm9uZQoKCiMg4pSA4pSAIE1vZGVsIDI6IEh1Z2dpbmcgRmFjZSBGTFVYLjEtc2NobmVsbCDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAKCmFzeW5jIGRlZiBfaHVnZ2luZ2ZhY2Vfb25jZShwcm9tcHQ6IHN0ciwgcmF0aW86IHN0cikgLT4gT3B0aW9uYWxbYnl0ZXNdOgogICAgaWYgbm90IEhGX0FQSV9UT0tFTjoKICAgICAgICByYWlzZSBSdW50aW1lRXJyb3IoIkhGX1RPS0VOIG5vdCBzZXQgaW4gZW52aXJvbm1lbnQuIikKCiAgICB3LCBoICAgICA9IF9nZXRfZGltcyhyYXRpbykKICAgIGVucmljaGVkID0gX2VucmljaF9wcm9tcHQocHJvbXB0LCBtYXhfY2hhcnM9NTAwKQoKICAgIGhlYWRlcnMgPSB7CiAgICAgICAgIkF1dGhvcml6YXRpb24iOiBmIkJlYXJlciB7SEZfQVBJX1RPS0VOfSIsCiAgICAgICAgIkNvbnRlbnQtVHlwZSI6ICAiYXBwbGljYXRpb24vanNvbiIsCiAgICAgICAgIlVzZXItQWdlbnQiOiAgICAiTW96aWxsYS81LjAgKFdpbmRvd3MgTlQgMTAuMDsgV2luNjQ7IHg2NCkgQXBwbGVXZWJLaXQvNTM3LjM2IChLSFRNTCwgbGlrZSBHZWNrbykgQ2hyb21lLzEyMC4wLjAuMCBTYWZhcmkvNTM3LjM2IgogICAgfQoKICAgIHBheWxvYWQgPSB7CiAgICAgICAgImlucHV0cyI6IGVucmljaGVkLAogICAgICAgICJwYXJhbWV0ZXJzIjogewogICAgICAgICAgICAid2lkdGgiOiAgICAgICAgICAgICAgIHcsCiAgICAgICAgICAgICJoZWlnaHQiOiAgICAgICAgICAgICAgaCwKICAgICAgICAgICAgIm51bV9pbmZlcmVuY2Vfc3RlcHMiOiA0LCAgICAjIEZMVVggc2NobmVsbCBvcHRpbWFsOiAxLTQgc3RlcHMKICAgICAgICAgICAgImd1aWRhbmNlX3NjYWxlIjogICAgICAwLjAsICAjIEZMVVggc2NobmVsbCBuZWVkcyAwLjAKICAgICAgICAgICAgInNlZWQiOiAgICAgICAgICAgICAgICByYW5kb20ucmFuZGludCgxLCA5OTlfOTk5KSwKICAgICAgICB9CiAgICB9CgogICAgYXN5bmMgd2l0aCBodHRweC5Bc3luY0NsaWVudCh0aW1lb3V0PV9DQUxMX1RJTUVPVVQpIGFzIGNsaWVudDoKICAgICAgICByZXNwID0gYXdhaXQgY2xpZW50LnBvc3QoX0hGX0ZMVVhfVVJMLCBoZWFkZXJzPWhlYWRlcnMsIGpzb249cGF5bG9hZCkKCiAgICAgICAgIyBNb2RlbCBtYXkgYmUgbG9hZGluZyDigJQgSEYgcmV0dXJucyA1MDMgd2l0aCBlc3RpbWF0ZWRfdGltZQogICAgICAgIGlmIHJlc3Auc3RhdHVzX2NvZGUgPT0gNTAzOgogICAgICAgICAgICB0cnk6CiAgICAgICAgICAgICAgICB3YWl0X3RpbWUgPSByZXNwLmpzb24oKS5nZXQoImVzdGltYXRlZF90aW1lIiwgMzApCiAgICAgICAgICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgICAgICAgICB3YWl0X3RpbWUgPSAzMAogICAgICAgICAgICBsb2dnZXIuaW5mbyhmIuKPsyBbSHVnZ2luZ0ZhY2VdIE1vZGVsIGxvYWRpbmcsIHdhaXRpbmcge3dhaXRfdGltZTouMGZ9cy4uLiIpCiAgICAgICAgICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAobWluKGZsb2F0KHdhaXRfdGltZSksIDYwKSkKICAgICAgICAgICAgIyBPbmUgbW9yZSB0cnkgYWZ0ZXIgbW9kZWwgbG9hZHMKICAgICAgICAgICAgcmVzcCA9IGF3YWl0IGNsaWVudC5wb3N0KF9IRl9GTFVYX1VSTCwgaGVhZGVycz1oZWFkZXJzLCBqc29uPXBheWxvYWQpCgogICAgICAgIHJlc3AucmFpc2VfZm9yX3N0YXR1cygpCiAgICAgICAgcmV0dXJuIHJlc3AuY29udGVudAoKCmFzeW5jIGRlZiBfdDJpX2h1Z2dpbmdmYWNlKHByb21wdDogc3RyLCByYXRpbzogc3RyKSAtPiBPcHRpb25hbFtieXRlc106CiAgICBpZiBub3QgSEZfQVBJX1RPS0VOOgogICAgICAgIGxvZ2dlci53YXJuaW5nKCLimqDvuI8gW0h1Z2dpbmdGYWNlXSBIRl9UT0tFTiBub3Qgc2V0IOKAlCBza2lwcGluZy4iKQogICAgICAgIHJldHVybiBOb25lCgogICAgZm9yIGF0dGVtcHQgaW4gcmFuZ2UoMSwgX0hGX01BWF9SRVRSSUVTICsgMSk6CiAgICAgICAgdHJ5OgogICAgICAgICAgICBsb2dnZXIuaW5mbyhmIvCfpJcgW0h1Z2dpbmdGYWNlXSBBdHRlbXB0IHthdHRlbXB0fS97X0hGX01BWF9SRVRSSUVTfSB8IHJhdGlvPXtyYXRpb30iKQogICAgICAgICAgICBpbWcgPSBhd2FpdCBfaHVnZ2luZ2ZhY2Vfb25jZShwcm9tcHQsIHJhdGlvKQogICAgICAgICAgICBpZiBfaXNfdmFsaWQoaW1nKToKICAgICAgICAgICAgICAgIGxvZ2dlci5pbmZvKGYi4pyFIFtIdWdnaW5nRmFjZV0ge2xlbihpbWcpOix9IGJ5dGVzIG9uIGF0dGVtcHQge2F0dGVtcHR9IikKICAgICAgICAgICAgICAgIHJldHVybiBpbWcKICAgICAgICAgICAgbG9nZ2VyLndhcm5pbmcoZiLimqDvuI8gW0h1Z2dpbmdGYWNlXSBBdHRlbXB0IHthdHRlbXB0fTogaW52YWxpZC90b28gc21hbGwiKQogICAgICAgIGV4Y2VwdCBodHRweC5IVFRQU3RhdHVzRXJyb3IgYXMgZToKICAgICAgICAgICAgaWYgZS5yZXNwb25zZSBpcyBub3QgTm9uZSBhbmQgZS5yZXNwb25zZS5zdGF0dXNfY29kZSA9PSA0MTA6CiAgICAgICAgICAgICAgICBsb2dnZXIuZXJyb3IoCiAgICAgICAgICAgICAgICAgICAgIuKdjCBbSHVnZ2luZ0ZhY2VdIEZMVVguMS1zY2huZWxsIGlzIHBlcm1hbmVudGx5IHJlbW92ZWQgZnJvbSAiCiAgICAgICAgICAgICAgICAgICAgImhmLWluZmVyZW5jZSAoNDEwIEdvbmUgc2luY2UgSnVsIDIwMjYpIOKAlCBza2lwcGluZyByZXRyaWVzLCAiCiAgICAgICAgICAgICAgICAgICAgIm1vdmluZyBzdHJhaWdodCB0byBQb2xsaW5hdGlvbnMuIgogICAgICAgICAgICAgICAgKQogICAgICAgICAgICAgICAgcmV0dXJuIE5vbmUKICAgICAgICAgICAgbG9nZ2VyLndhcm5pbmcoZiLimqDvuI8gW0h1Z2dpbmdGYWNlXSBBdHRlbXB0IHthdHRlbXB0fSBlcnJvcjoge3R5cGUoZSkuX19uYW1lX199OiB7ZSFyfSIpCiAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOgogICAgICAgICAgICBsb2dnZXIud2FybmluZyhmIuKaoO+4jyBbSHVnZ2luZ0ZhY2VdIEF0dGVtcHQge2F0dGVtcHR9IGVycm9yOiB7dHlwZShlKS5fX25hbWVfX306IHtlIXJ9IikKCiAgICAgICAgaWYgYXR0ZW1wdCA8IF9IRl9NQVhfUkVUUklFUzoKICAgICAgICAgICAgbG9nZ2VyLmluZm8oZiLij7MgW0h1Z2dpbmdGYWNlXSBXYWl0aW5nIHtfSEZfUkVUUllfREVMQVl9cyBiZWZvcmUgcmV0cnkuLi4iKQogICAgICAgICAgICBhd2FpdCBhc3luY2lvLnNsZWVwKF9IRl9SRVRSWV9ERUxBWSkKCiAgICBsb2dnZXIuZXJyb3IoIuKdjCBbSHVnZ2luZ0ZhY2VdIEFsbCBhdHRlbXB0cyBmYWlsZWQg4oCUIG1vdmluZyB0byBQb2xsaW5hdGlvbnMuIikKICAgIHJldHVybiBOb25lCgoKIyDilIDilIAgTW9kZWwgMzogUG9sbGluYXRpb25zLmFpIChMYXN0IFJlc29ydCkg4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSACgphc3luYyBkZWYgX3BvbGxpbmF0aW9uc19vbmNlKHByb21wdDogc3RyLCByYXRpbzogc3RyKSAtPiBPcHRpb25hbFtieXRlc106CiAgICB3LCBoID0gX2dldF9kaW1zKHJhdGlvKQoKICAgICMgUG9sbGluYXRpb25zIHF1YWxpdHkgdGlwOiBrZWVwIHByb21wdCB1bmRlciAzMDAgY2hhcnMg4oCUIGxvbmcgcHJvbXB0cyBodXJ0IHF1YWxpdHkgaGVyZQogICAgIyBTdHJpcCBxdWFsaXR5IHRhaWwgKFBvbGxpbmF0aW9ucyBpZ25vcmVzICI0SyB1bHRyYSBIRCIgZXRjKSwga2VlcCBjb3JlIHZpc3VhbCBvbmx5CiAgICBjb3JlX3Byb21wdCA9IHByb21wdC5yZXBsYWNlKAogICAgICAgICIsIDRLIHVsdHJhIEhELCBwaG90b3JlYWxpc3RpYywgaGlnaGx5IGRldGFpbGVkLCBhd2FyZC13aW5uaW5nIHBob3RvZ3JhcGh5IiwgIiIKICAgICkuc3RyaXAoKS5yc3RyaXAoIiwiKS5zdHJpcCgpCiAgICBjb3JlX3Byb21wdCA9IGNvcmVfcHJvbXB0WzozMDBdICAjIEhhcmQgY2FwIOKAlCBQb2xsaW5hdGlvbnMgZGVncmFkZXMgYmV5b25kIHRoaXMKCiAgICBzZWVkICAgID0gcmFuZG9tLnJhbmRpbnQoMSwgOTk5Xzk5OSkKICAgIGVuY29kZWQgPSB1cmxsaWIucGFyc2UucXVvdGUoY29yZV9wcm9tcHQpCgogICAgIyBmbHV4LXBybyA9IG5vdGljZWFibHkgYmV0dGVyIHF1YWxpdHkgdGhhbiBmbHV4IG9uIFBvbGxpbmF0aW9ucyAoc3RpbGwgZnJlZSkKICAgIHVybCA9ICgKICAgICAgICBmIntfUE9MTElOQVRJT05TX0JBU0V9L3tlbmNvZGVkfSIKICAgICAgICBmIj93aWR0aD17d30maGVpZ2h0PXtofSZub2xvZ289dHJ1ZSZlbmhhbmNlPXRydWUiCiAgICAgICAgZiImbW9kZWw9Zmx1eC1wcm8mcXVhbGl0eT1oaWdoJnNlZWQ9e3NlZWR9JnNhZmU9ZmFsc2UiCiAgICApCiAgICBsb2dnZXIuaW5mbyhmIvCfjqggW1BvbGxpbmF0aW9uc10ge3d9eHtofSB8IHNlZWQ9e3NlZWR9IHwgcmF0aW89e3JhdGlvfSB8IG1vZGVsPWZsdXgtcHJvIikKICAgIGltZyA9IGF3YWl0IF9kb3dubG9hZF9ieXRlcyh1cmwsIHRpbWVvdXQ9X0NBTExfVElNRU9VVCkKICAgIGlmIGltZyBpcyBOb25lOgogICAgICAgIHJhaXNlIFJ1bnRpbWVFcnJvcigiUG9sbGluYXRpb25zIGRvd25sb2FkIHJldHVybmVkIE5vbmUuIikKICAgIHJldHVybiBpbWcKCgphc3luYyBkZWYgX3QyaV9wb2xsaW5hdGlvbnMocHJvbXB0OiBzdHIsIHJhdGlvOiBzdHIpIC0+IE9wdGlvbmFsW2J5dGVzXToKICAgIGZvciBhdHRlbXB0IGluIHJhbmdlKDEsIF9QT0xMX01BWF9SRVRSSUVTICsgMSk6CiAgICAgICAgdHJ5OgogICAgICAgICAgICBsb2dnZXIuaW5mbyhmIvCfjqggW1BvbGxpbmF0aW9uc10gQXR0ZW1wdCB7YXR0ZW1wdH0ve19QT0xMX01BWF9SRVRSSUVTfSIpCiAgICAgICAgICAgIGltZyA9IGF3YWl0IF9wb2xsaW5hdGlvbnNfb25jZShwcm9tcHQsIHJhdGlvKQogICAgICAgICAgICBpZiBfaXNfdmFsaWQoaW1nKToKICAgICAgICAgICAgICAgIGxvZ2dlci5pbmZvKGYi4pyFIFtQb2xsaW5hdGlvbnNdIHtsZW4oaW1nKTosfSBieXRlcyBvbiBhdHRlbXB0IHthdHRlbXB0fSIpCiAgICAgICAgICAgICAgICByZXR1cm4gaW1nCiAgICAgICAgICAgIGxvZ2dlci53YXJuaW5nKGYi4pqg77iPIFtQb2xsaW5hdGlvbnNdIEF0dGVtcHQge2F0dGVtcHR9OiB0b28gc21hbGwiKQogICAgICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICAgICAgbG9nZ2VyLndhcm5pbmcoZiLimqDvuI8gW1BvbGxpbmF0aW9uc10gQXR0ZW1wdCB7YXR0ZW1wdH0gZXJyb3I6IHtlfSIpCgogICAgICAgIGlmIGF0dGVtcHQgPCBfUE9MTF9NQVhfUkVUUklFUzoKICAgICAgICAgICAgbG9nZ2VyLmluZm8oZiLij7MgW1BvbGxpbmF0aW9uc10gV2FpdGluZyB7X1BPTExfUkVUUllfREVMQVl9cyBiZWZvcmUgcmV0cnkuLi4iKQogICAgICAgICAgICBhd2FpdCBhc3luY2lvLnNsZWVwKF9QT0xMX1JFVFJZX0RFTEFZKQoKICAgIGxvZ2dlci5lcnJvcigi4p2MIFtQb2xsaW5hdGlvbnNdIEFsbCBhdHRlbXB0cyBmYWlsZWQuIikKICAgIHJldHVybiBOb25lCgoKIyDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZAKIyBQVUJMSUMgQVBJCiMg4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQCgphc3luYyBkZWYgZ2VuZXJhdGVfcGluX2ltYWdlKHZpc3VhbF9wcm9tcHQ6IHN0ciwgcmF0aW86IHN0ciA9ICI5OjE2IikgLT4gT3B0aW9uYWxbc3RyXToKICAgICIiIgogICAgR2VuZXJhdGUgYSBQaW50ZXJlc3QgaW1hZ2UgdXNpbmcgdGhlIFQySSBwaXBlbGluZS4KCiAgICBGbG93OgogICAgICAxLiBJbmplY3QgNCBmb2N1c2VkIHZhcmlldHkgbW9kaWZpZXJzIChhbmdsZSwgbGlnaHRpbmcsIGNvbXAsIHNlYXNvbikKICAgICAgMi4gUmFuZG9tIHNlZWQgZXZlcnkgY2FsbCBmb3IgdmlzdWFsIGZyZXNobmVzcwogICAgICAzLiBUcnkgQ2xvdWRmbGFyZSAocHJpbWFyeSkg4oaSIEh1Z2dpbmdGYWNlIChzZWNvbmRhcnkpIOKGkiBQb2xsaW5hdGlvbnMgKGxhc3QgcmVzb3J0KQogICAgICA0LiBVcGxvYWQgcmVzdWx0IHRvIEltZ0JCIGZvciBwZXJtYW5lbnQgaG9zdGluZwoKICAgIEFyZ3M6CiAgICAgICAgdmlzdWFsX3Byb21wdDogVGhlIGRldGFpbGVkIHZpc3VhbCBwcm9tcHQgZnJvbSBwcm9tcHRzIG1hc3RlcgogICAgICAgIHJhdGlvOiAiOToxNiIgKFBpbnRlcmVzdCBwb3J0cmFpdCkgb3IgIjE6MSIgKHNxdWFyZSkKCiAgICBSZXR1cm5zOgogICAgICAgIEltZ0JCIGhvc3RlZCBVUkwgb3IgTm9uZSBpZiBhbGwgbW9kZWxzIGZhaWwKICAgICIiIgogICAgdywgaCA9IF9nZXRfZGltcyhyYXRpbykKICAgIGxvZ2dlci5pbmZvKGYi8J+OqCBbSW1hZ2UgUGlwZWxpbmVdIFBJTiB8IHJhdGlvPXtyYXRpb30gKHt3fXh7aH0pIikKCiAgICAjIEluamVjdCB2YXJpZXR5IOKAlCA0IGZvY3VzZWQgbW9kaWZpZXJzLCBsZWFuIHByb21wdAogICAgZW5yaWNoZWRfcHJvbXB0LCBtb2RzID0gX2luamVjdF92YXJpZXR5KHZpc3VhbF9wcm9tcHQpCiAgICBsb2dnZXIuaW5mbygKICAgICAgICBmIvCfjrIgW1ZhcmlldHkgRW5naW5lIHY0XSAiCiAgICAgICAgZiJhbmdsZT17bW9kc1snYW5nbGUnXVs6MzVdfSB8ICIKICAgICAgICBmImxpZ2h0PXttb2RzWydsaWdodGluZyddWzozNV19IHwgIgogICAgICAgIGYiY29tcD17bW9kc1snY29tcCddWzozNV19IHwgIgogICAgICAgIGYic2Vhc29uPXttb2RzWydzZWFzb24nXVs6MzVdfSIKICAgICkKICAgIGxvZ2dlci5pbmZvKGYi8J+TnSBbUHJvbXB0XSB7bGVuKGVucmljaGVkX3Byb21wdCl9IGNoYXJzOiB7ZW5yaWNoZWRfcHJvbXB0WzoxMjBdfS4uLiIpCgogICAgIyBQUklNQVJZOiBDbG91ZGZsYXJlCiAgICBpbWFnZV9ieXRlcyA9IGF3YWl0IF90MmlfY2xvdWRmbGFyZShlbnJpY2hlZF9wcm9tcHQsIHJhdGlvKQoKICAgICMgU0VDT05EQVJZOiBIdWdnaW5nRmFjZQogICAgaWYgbm90IGltYWdlX2J5dGVzOgogICAgICAgIGxvZ2dlci5pbmZvKCLwn5SEIFtJbWFnZSBQaXBlbGluZV0gQ2xvdWRmbGFyZSBleGhhdXN0ZWQg4oCUIHRyeWluZyBIdWdnaW5nRmFjZS4uLiIpCiAgICAgICAgaW1hZ2VfYnl0ZXMgPSBhd2FpdCBfdDJpX2h1Z2dpbmdmYWNlKGVucmljaGVkX3Byb21wdCwgcmF0aW8pCgogICAgIyBMQVNUIFJFU09SVDogUG9sbGluYXRpb25zCiAgICBpZiBub3QgaW1hZ2VfYnl0ZXM6CiAgICAgICAgbG9nZ2VyLmluZm8oIvCflIQgW0ltYWdlIFBpcGVsaW5lXSBIdWdnaW5nRmFjZSBleGhhdXN0ZWQg4oCUIHRyeWluZyBQb2xsaW5hdGlvbnMuLi4iKQogICAgICAgIGltYWdlX2J5dGVzID0gYXdhaXQgX3QyaV9wb2xsaW5hdGlvbnMoZW5yaWNoZWRfcHJvbXB0LCByYXRpbykKCiAgICBpZiBub3QgaW1hZ2VfYnl0ZXM6CiAgICAgICAgbG9nZ2VyLmVycm9yKCLinYwgW0ltYWdlIFBpcGVsaW5lXSBBbGwgbW9kZWxzIGV4aGF1c3RlZCDigJQgbm8gaW1hZ2UgZ2VuZXJhdGVkLiIpCiAgICAgICAgcmV0dXJuIE5vbmUKCiAgICByZXR1cm4gYXdhaXQgX3VwbG9hZF90b19pbWdiYihpbWFnZV9ieXRlcykKCgphc3luYyBkZWYgdXBsb2FkX3Jhd19pbWFnZShpbWFnZV91cmw6IHN0cikgLT4gT3B0aW9uYWxbc3RyXToKICAgICIiIkRvd25sb2FkIGFuIGFmZmlsaWF0ZSBwcm9kdWN0IGltYWdlIGFuZCByZS1ob3N0IG9uIEltZ0JCLiIiIgogICAgbG9nZ2VyLmluZm8oZiLirIfvuI8gIFtJbWFnZSBQaXBlbGluZV0gQUZGSUxJQVRFX1BJTiDigJQgZG93bmxvYWRpbmc6IHtpbWFnZV91cmxbOjYwXX0uLi4iKQogICAgaW1hZ2VfYnl0ZXMgPSBhd2FpdCBfZG93bmxvYWRfYnl0ZXMoaW1hZ2VfdXJsKQogICAgaWYgbm90IGltYWdlX2J5dGVzOgogICAgICAgIGxvZ2dlci5lcnJvcigi4p2MIFtJbWFnZSBQaXBlbGluZV0gUHJvZHVjdCBpbWFnZSBkb3dubG9hZCBmYWlsZWQuIikKICAgICAgICByZXR1cm4gTm9uZQogICAgcmV0dXJuIGF3YWl0IF91cGxvYWRfdG9faW1nYmIoaW1hZ2VfYnl0ZXMpCg==
+"""
+tools/image_creator.py — Triple-Layer T2I Image Pipeline  [VARIETY ENGINE v4 — CLEAN & OPTIMIZED]
+
+MODELS (in order):
+  1. Cloudflare     — @cf/black-forest-labs/flux-1-schnell (Primary)
+  2. Hugging Face   — black-forest-labs/FLUX.1-schnell (Secondary fallback)
+  3. Pollinations   — free, URL-based (Last resort fallback)
+
+VARIETY ENGINE v4 — What changed from v3:
+  REMOVED (were hurting quality):
+    ✗ _CAMERA_LENSES    — Flux Schnell ignores real camera specs, produces garbage
+    ✗ _EDITORIAL_STYLE  — "Architectural Digest editorial" has zero effect on model
+    ✗ _COLOR_ACCENTS    — Conflicts with prompts master which already sets colors
+    ✗ _TEXTURE_DETAILS  — Over-specification overwhelms the model
+    ✗ _TIME_OF_DAY      — Redundant, already covered by _LIGHTING_MOODS
+
+  KEPT (genuinely useful):
+    ✓ _CAMERA_ANGLES    — Fresh perspective every pin
+    ✓ _LIGHTING_MOODS   — Controls brightness & mood well
+    ✓ _COMP_STYLES      — Gives composition variety
+    ✓ _SEASONS_WEATHER  — Background context variety
+
+  RESULT: Prompt stays ~350-450 chars (was bloating to 900).
+          Model gets clear signal → sharper, cleaner, on-theme output.
+
+RATIO SUPPORT:
+  • 9:16 portrait → 1080x1920  (primary, Pinterest-native)
+  • 1:1 square    → 1080x1080  (alternate, carousel-friendly)
+"""
+
+import asyncio
+import base64
+import logging
+import os
+import random
+import urllib.parse
+from typing import Optional
+
+import httpx
+
+from config import (
+    IMGBB_API_KEY,
+    CLOUDFLARE_ACCOUNT_ID,
+    CLOUDFLARE_API_TOKEN,
+    CLOUDFLARE_IMAGE_MODEL,
+    POLLINATIONS_MODEL
+)
+
+logger = logging.getLogger(__name__)
+
+# ── HuggingFace token from env ─────────────────────────────────────────────────
+HF_API_TOKEN = os.environ.get("HF_TOKEN", "")
+
+# ── Constants ──────────────────────────────────────────────────────────────────
+_CALL_TIMEOUT        = 180
+_CF_RETRY_DELAY      = 40   # Cloudflare: 40s wait between retries (GPU overload needs time)
+_HF_RETRY_DELAY      = 30   # HuggingFace: 30s wait between retries
+_POLL_RETRY_DELAY    = 10   # Pollinations: 10s wait between retries
+_MIN_VALID_BYTES     = 5_000
+_CF_MAX_RETRIES      = 2
+_HF_MAX_RETRIES      = 2
+_POLL_MAX_RETRIES    = 2
+
+_RATIO_DIMS = {
+    "9:16": (1080, 1920),
+    "1:1":  (1080, 1080),
+}
+
+_POLLINATIONS_BASE = "https://image.pollinations.ai/prompt"
+_HF_FLUX_URL       = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
+
+# ── Negative prompt — always appended to block garbage outputs ─────────────────
+_NEGATIVE_PROMPT = (
+    "ugly, blurry, watermark, text overlay, logo, signature, "
+    "cartoon, anime, illustration, drawing, painting, CGI plastic, "
+    "overexposed, underexposed, low quality, jpeg artifacts, "
+    "distorted, deformed, duplicate, cropped, frame, border, "
+    "dark, moody, noir, desaturated, gloomy, depressing"
+)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# VARIETY ENGINE v4 — 4 focused pools only
+# Prompts master already handles: subject, colors, props, style details
+# These pools only add: angle, light, composition, season — nothing more
+# ══════════════════════════════════════════════════════════════════════════════
+
+_CAMERA_ANGLES = [
+    "eye-level lifestyle shot",
+    "slight high angle looking into room",
+    "low angle emphasizing height of space",
+    "straight-on symmetrical architectural shot",
+    "three-quarter angle showing room depth",
+    "diagonal foreground prop framing shot",
+    "wide establishing interior shot",
+    "intimate close-up detail and texture shot",
+    "over-the-shoulder lifestyle perspective",
+    "corner angle showing two walls for depth",
+]
+
+_LIGHTING_MOODS = [
+    "bright soft morning window light",
+    "warm golden hour afternoon sunlight streaming in",
+    "diffused bright daylight, zero harsh shadows",
+    "gentle dappled sunlight through sheer curtains",
+    "crisp clean mid-morning bright light",
+    "warm ambient with soft window fill",
+    "bright airy spring daylight, high key",
+    "soft side window light with gentle fill",
+    "cheerful sunny afternoon interior light",
+    "warm cozy lamp light complementing daylight",
+]
+
+_COMP_STYLES = [
+    "rule of thirds with strong foreground prop",
+    "perfect centered symmetry, interior architecture",
+    "leading lines drawing eye through room depth",
+    "layered depth: close props, mid furniture, background wall",
+    "foreground bokeh flower or plant framing subject",
+    "wide establishing room context shot",
+    "tight detail crop isolating single beautiful prop",
+    "s-curve natural flow composition",
+    "framed within doorway or window arch",
+    "negative space minimalism with single hero prop",
+]
+
+_SEASONS_WEATHER = [
+    "lush bright spring, cherry blossoms visible through window",
+    "warm golden summer, vibrant greenery outside",
+    "fresh spring morning, soft green buds on trees",
+    "bright clear summer day, blue sky outside",
+    "warm late spring afternoon, flowers in full bloom",
+    "sunny golden autumn, warm amber light",
+    "fresh spring after rain, everything glistening green",
+    "clear crisp summer blue-sky day",
+    "warm mid-spring garden visible through window",
+    "bright cheerful overcast spring diffused light",
+]
+
+
+def _pick_variety_modifiers() -> dict:
+    """Pick one random modifier from each of the 4 focused pools."""
+    return {
+        "angle":    random.choice(_CAMERA_ANGLES),
+        "lighting": random.choice(_LIGHTING_MOODS),
+        "comp":     random.choice(_COMP_STYLES),
+        "season":   random.choice(_SEASONS_WEATHER),
+    }
+
+
+def _inject_variety(base_prompt: str) -> tuple[str, dict]:
+    """
+    Inject 4 focused variety modifiers into the base prompts-master visual_prompt.
+    Keeps total prompt lean (~350-450 chars) so the model stays on-theme.
+    Returns (enriched_prompt, modifiers_used) — modifiers logged for debugging.
+    """
+    mods = _pick_variety_modifiers()
+
+    variety_block = (
+        f"{mods['angle']}, {mods['lighting']}, "
+        f"{mods['comp']}, {mods['season']}"
+    )
+
+    quality_tail = "4K ultra HD, photorealistic, highly detailed, award-winning photography"
+
+    # Strip existing quality tail if prompts master already added it, re-add cleanly
+    base_clean = base_prompt.replace(quality_tail, "").rstrip(", ").strip()
+
+    enriched = f"{base_clean}, {variety_block}, {quality_tail}"
+    return enriched, mods
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+def _enrich_prompt(prompt: str, max_chars: int = 600) -> str:
+    """Ensure quality tail present, then truncate. Variety already injected upstream."""
+    base = prompt.strip()
+    if "4K" not in base and "4k" not in base:
+        base += ", 4K ultra HD, photorealistic, highly detailed, award-winning photography"
+    return base[:max_chars]
+
+
+def _get_dims(ratio: str) -> tuple[int, int]:
+    return _RATIO_DIMS.get(ratio, _RATIO_DIMS["9:16"])
+
+
+async def _download_bytes(url: str, timeout: int = _CALL_TIMEOUT) -> Optional[bytes]:
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.content
+    except Exception as e:
+        logger.error(f"❌ Download failed [{url[:60]}]: {e}")
+        return None
+
+
+async def _upload_to_imgbb(image_bytes: bytes) -> Optional[str]:
+    if not IMGBB_API_KEY:
+        logger.error("❌ [ImgBB] IMGBB_API_KEY not set.")
+        return None
+    encoded = base64.b64encode(image_bytes).decode("utf-8")
+    logger.info(f"⬆️  [ImgBB] Uploading {len(image_bytes):,} bytes (permanent)...")
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                "https://api.imgbb.com/1/upload",
+                data={"key": IMGBB_API_KEY, "image": encoded},
+            )
+            resp.raise_for_status()
+            url = resp.json()["data"]["url"]
+        logger.info(f"✅ [ImgBB] Hosted: {url}")
+        return url
+    except Exception as e:
+        logger.error(f"❌ [ImgBB] Upload failed: {e}")
+        return None
+
+
+def _is_valid(image_bytes: Optional[bytes]) -> bool:
+    return bool(image_bytes) and len(image_bytes) >= _MIN_VALID_BYTES
+
+
+# ── Model 1: Cloudflare Workers AI (multi-model cascade) ──────────────────────
+
+# Cascade order: config model first (FLUX.2 klein), then FLUX.1 schnell.
+# FLUX.2 models accept multipart/form-data ONLY (a JSON body gets HTTP 400);
+# FLUX.1 schnell takes the classic JSON {"prompt": ...} payload.
+_CF_MODELS = list(dict.fromkeys([
+    CLOUDFLARE_IMAGE_MODEL,
+    "@cf/black-forest-labs/flux-1-schnell",
+]))
+
+
+async def _cloudflare_once(prompt: str, ratio: str, model: str) -> Optional[bytes]:
+    if not CLOUDFLARE_ACCOUNT_ID or not CLOUDFLARE_API_TOKEN:
+        raise RuntimeError("CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN not configured.")
+
+    w, h     = _get_dims(ratio)
+    # Removing resolution text from prompt to be safe as well
+    enriched = _enrich_prompt(prompt)
+
+    url = (
+        f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}"
+        f"/ai/run/{model}"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+        "User-Agent":    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
+        if "flux-2" in model:
+            # FLUX.2 (klein): multipart form — prompt + width + height
+            form = {
+                "prompt": (None, enriched),
+                "width":  (None, str(w)),
+                "height": (None, str(h)),
+            }
+            resp = await client.post(url, headers=headers, files=form)
+        else:
+            # FLUX.1 schnell: classic JSON payload (prompt only)
+            resp = await client.post(
+                url,
+                headers={**headers, "Content-Type": "application/json"},
+                json={"prompt": enriched},
+            )
+        resp.raise_for_status()
+
+        if "application/json" in resp.headers.get("content-type", "").lower():
+            data    = resp.json()
+            b64_str = data.get("result", {}).get("image", "")
+            if b64_str:
+                return base64.b64decode(b64_str)
+            logger.error(f"❌ [Cloudflare] No image in response: {str(data)[:200]}")
+            return None
+        else:
+            return resp.content
+
+
+async def _t2i_cloudflare(prompt: str, ratio: str) -> Optional[bytes]:
+    for model in _CF_MODELS:
+        short = model.split("/")[-1]
+        for attempt in range(1, _CF_MAX_RETRIES + 1):
+            try:
+                logger.info(f"🎨 [Cloudflare:{short}] Attempt {attempt}/{_CF_MAX_RETRIES} | ratio={ratio}")
+                img = await _cloudflare_once(prompt, ratio, model)
+                if _is_valid(img):
+                    logger.info(f"✅ [Cloudflare:{short}] {len(img):,} bytes on attempt {attempt}")
+                    return img
+                logger.warning(f"⚠️ [Cloudflare:{short}] Attempt {attempt}: invalid/too small")
+            except Exception as e:
+                logger.warning(
+                    f"⚠️ [Cloudflare:{short}] Attempt {attempt} error: "
+                    f"{type(e).__name__}: {e!r} | cause={e.__cause__!r}"
+                )
+
+            if attempt < _CF_MAX_RETRIES:
+                delay = random.randint(30, 50)
+                logger.info(f"⏳ [Cloudflare:{short}] Waiting {delay}s before retry...")
+                await asyncio.sleep(delay)
+
+        logger.error(f"❌ [Cloudflare:{short}] All attempts failed — trying next model.")
+
+    logger.error("❌ [Cloudflare] All models failed — moving to HuggingFace.")
+    return None
+
+
+# ── Model 2: Hugging Face FLUX.1-schnell ───────────────────────────────────────
+
+async def _huggingface_once(prompt: str, ratio: str) -> Optional[bytes]:
+    if not HF_API_TOKEN:
+        raise RuntimeError("HF_TOKEN not set in environment.")
+
+    w, h     = _get_dims(ratio)
+    enriched = _enrich_prompt(prompt, max_chars=500)
+
+    headers = {
+        "Authorization": f"Bearer {HF_API_TOKEN}",
+        "Content-Type":  "application/json",
+        "User-Agent":    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    payload = {
+        "inputs": enriched,
+        "parameters": {
+            "width":               w,
+            "height":              h,
+            "num_inference_steps": 4,    # FLUX schnell optimal: 1-4 steps
+            "guidance_scale":      0.0,  # FLUX schnell needs 0.0
+            "seed":                random.randint(1, 999_999),
+        }
+    }
+
+    async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
+        resp = await client.post(_HF_FLUX_URL, headers=headers, json=payload)
+
+        # Model may be loading — HF returns 503 with estimated_time
+        if resp.status_code == 503:
+            try:
+                wait_time = resp.json().get("estimated_time", 30)
+            except Exception:
+                wait_time = 30
+            logger.info(f"⏳ [HuggingFace] Model loading, waiting {wait_time:.0f}s...")
+            await asyncio.sleep(min(float(wait_time), 60))
+            # One more try after model loads
+            resp = await client.post(_HF_FLUX_URL, headers=headers, json=payload)
+
+        resp.raise_for_status()
+        return resp.content
+
+
+async def _t2i_huggingface(prompt: str, ratio: str) -> Optional[bytes]:
+    if not HF_API_TOKEN:
+        logger.warning("⚠️ [HuggingFace] HF_TOKEN not set — skipping.")
+        return None
+
+    for attempt in range(1, _HF_MAX_RETRIES + 1):
+        try:
+            logger.info(f"🤗 [HuggingFace] Attempt {attempt}/{_HF_MAX_RETRIES} | ratio={ratio}")
+            img = await _huggingface_once(prompt, ratio)
+            if _is_valid(img):
+                logger.info(f"✅ [HuggingFace] {len(img):,} bytes on attempt {attempt}")
+                return img
+            logger.warning(f"⚠️ [HuggingFace] Attempt {attempt}: invalid/too small")
+        except httpx.HTTPStatusError as e:
+            if e.response is not None and e.response.status_code == 410:
+                logger.error(
+                    "❌ [HuggingFace] FLUX.1-schnell is permanently removed from "
+                    "hf-inference (410 Gone since Jul 2026) — skipping retries, "
+                    "moving straight to Pollinations."
+                )
+                return None
+            logger.warning(f"⚠️ [HuggingFace] Attempt {attempt} error: {type(e).__name__}: {e!r}")
+        except Exception as e:
+            logger.warning(f"⚠️ [HuggingFace] Attempt {attempt} error: {type(e).__name__}: {e!r}")
+
+        if attempt < _HF_MAX_RETRIES:
+            logger.info(f"⏳ [HuggingFace] Waiting {_HF_RETRY_DELAY}s before retry...")
+            await asyncio.sleep(_HF_RETRY_DELAY)
+
+    logger.error("❌ [HuggingFace] All attempts failed — moving to Pollinations.")
+    return None
+
+
+# ── Model 3: Pollinations.ai (Last Resort) ─────────────────────────────────────
+
+async def _pollinations_once(prompt: str, ratio: str) -> Optional[bytes]:
+    w, h = _get_dims(ratio)
+
+    # Pollinations quality tip: keep prompt under 300 chars — long prompts hurt quality here
+    # Strip quality tail (Pollinations ignores "4K ultra HD" etc), keep core visual only
+    core_prompt = prompt.replace(
+        ", 4K ultra HD, photorealistic, highly detailed, award-winning photography", ""
+    ).strip().rstrip(",").strip()
+    core_prompt = core_prompt[:300]  # Hard cap — Pollinations degrades beyond this
+
+    seed    = random.randint(1, 999_999)
+    encoded = urllib.parse.quote(core_prompt)
+
+    # flux-pro = noticeably better quality than flux on Pollinations (still free)
+    url = (
+        f"{_POLLINATIONS_BASE}/{encoded}"
+        f"?width={w}&height={h}&nologo=true&enhance=true"
+        f"&model=flux-pro&quality=high&seed={seed}&safe=false"
+    )
+    logger.info(f"🎨 [Pollinations] {w}x{h} | seed={seed} | ratio={ratio} | model=flux-pro")
+    img = await _download_bytes(url, timeout=_CALL_TIMEOUT)
+    if img is None:
+        raise RuntimeError("Pollinations download returned None.")
+    return img
+
+
+async def _t2i_pollinations(prompt: str, ratio: str) -> Optional[bytes]:
+    for attempt in range(1, _POLL_MAX_RETRIES + 1):
+        try:
+            logger.info(f"🎨 [Pollinations] Attempt {attempt}/{_POLL_MAX_RETRIES}")
+            img = await _pollinations_once(prompt, ratio)
+            if _is_valid(img):
+                logger.info(f"✅ [Pollinations] {len(img):,} bytes on attempt {attempt}")
+                return img
+            logger.warning(f"⚠️ [Pollinations] Attempt {attempt}: too small")
+        except Exception as e:
+            logger.warning(f"⚠️ [Pollinations] Attempt {attempt} error: {e}")
+
+        if attempt < _POLL_MAX_RETRIES:
+            logger.info(f"⏳ [Pollinations] Waiting {_POLL_RETRY_DELAY}s before retry...")
+            await asyncio.sleep(_POLL_RETRY_DELAY)
+
+    logger.error("❌ [Pollinations] All attempts failed.")
+    return None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PUBLIC API
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optional[str]:
+    """
+    Generate a Pinterest image using the T2I pipeline.
+
+    Flow:
+      1. Inject 4 focused variety modifiers (angle, lighting, comp, season)
+      2. Random seed every call for visual freshness
+      3. Try Cloudflare (primary) → HuggingFace (secondary) → Pollinations (last resort)
+      4. Upload result to ImgBB for permanent hosting
+
+    Args:
+        visual_prompt: The detailed visual prompt from prompts master
+        ratio: "9:16" (Pinterest portrait) or "1:1" (square)
+
+    Returns:
+        ImgBB hosted URL or None if all models fail
+    """
+    w, h = _get_dims(ratio)
+    logger.info(f"🎨 [Image Pipeline] PIN | ratio={ratio} ({w}x{h})")
+
+    # Inject variety — 4 focused modifiers, lean prompt
+    enriched_prompt, mods = _inject_variety(visual_prompt)
+    logger.info(
+        f"🎲 [Variety Engine v4] "
+        f"angle={mods['angle'][:35]} | "
+        f"light={mods['lighting'][:35]} | "
+        f"comp={mods['comp'][:35]} | "
+        f"season={mods['season'][:35]}"
+    )
+    logger.info(f"📝 [Prompt] {len(enriched_prompt)} chars: {enriched_prompt[:120]}...")
+
+    # PRIMARY: Cloudflare
+    image_bytes = await _t2i_cloudflare(enriched_prompt, ratio)
+
+    # SECONDARY: HuggingFace
+    if not image_bytes:
+        logger.info("🔄 [Image Pipeline] Cloudflare exhausted — trying HuggingFace...")
+        image_bytes = await _t2i_huggingface(enriched_prompt, ratio)
+
+    # LAST RESORT: Pollinations
+    if not image_bytes:
+        logger.info("🔄 [Image Pipeline] HuggingFace exhausted — trying Pollinations...")
+        image_bytes = await _t2i_pollinations(enriched_prompt, ratio)
+
+    if not image_bytes:
+        logger.error("❌ [Image Pipeline] All models exhausted — no image generated.")
+        return None
+
+    return await _upload_to_imgbb(image_bytes)
+
+
+async def upload_raw_image(image_url: str) -> Optional[str]:
+    """Download an affiliate product image and re-host on ImgBB."""
+    logger.info(f"⬇️  [Image Pipeline] AFFILIATE_PIN — downloading: {image_url[:60]}...")
+    image_bytes = await _download_bytes(image_url)
+    if not image_bytes:
+        logger.error("❌ [Image Pipeline] Product image download failed.")
+        return None
+    return await _upload_to_imgbb(image_bytes)
