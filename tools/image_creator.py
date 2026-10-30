@@ -33,10 +33,20 @@ import base64
 import logging
 import os
 import random
+import time
 import urllib.parse
 from typing import Optional
 
 import httpx
+
+try:
+    from tools.run_control import is_stopped as _run_stopped
+except Exception:  # flat import (module seedha run ho tab)
+    try:
+        from run_control import is_stopped as _run_stopped
+    except Exception:
+        def _run_stopped() -> bool:
+            return False
 
 from config import (
     IMGBB_API_KEY,
@@ -204,6 +214,40 @@ _IMGBB_MAX_ATTEMPTS = 3       # sirf UPLOAD retry hoga — generation kabhi doba
 _IMGBB_EXPIRATION   = 1800    # seconds (30 min) — temporary hosting; pin post
                               # hote hi Pinterest image apne CDN par le leta hai
 
+# ── Circuit breaker — ImgBB DOWN ho toh loop band ────────────────────────────
+# Seekh (30 Oct 2026, owner ka gussa sahi tha): ImgBB bilkul jawab na de
+# (ReadTimeout har attempt) toh har pin 3 lambe attempts me atakta tha aur
+# scheduler agla pin phir wahi karta — pura system ek fail-loop ban gaya.
+# Ab: lagatar 2 pin-level hosting failures ke baad circuit 15 min ke liye
+# KHUL jata hai — us dauran generation bhi nahi hogi aur upload try bhi
+# nahi; system chup rahega. Cooldown ke baad pehla pin khud test banega,
+# safal hua toh streak reset aur sab normal.
+_HOSTING_FAIL_STREAK   = 0
+_CIRCUIT_OPEN_UNTIL    = 0.0   # time.monotonic() deadline
+_CIRCUIT_THRESHOLD     = 2
+_CIRCUIT_COOLDOWN_SEC  = 900   # 15 min
+
+
+def _circuit_open() -> bool:
+    return time.monotonic() < _CIRCUIT_OPEN_UNTIL
+
+
+def _note_hosting_success() -> None:
+    global _HOSTING_FAIL_STREAK
+    _HOSTING_FAIL_STREAK = 0
+
+
+def _note_hosting_failure() -> None:
+    global _HOSTING_FAIL_STREAK, _CIRCUIT_OPEN_UNTIL
+    _HOSTING_FAIL_STREAK += 1
+    if _HOSTING_FAIL_STREAK >= _CIRCUIT_THRESHOLD and not _circuit_open():
+        _CIRCUIT_OPEN_UNTIL = time.monotonic() + _CIRCUIT_COOLDOWN_SEC
+        logger.error(
+            f"⚡ [ImgBB] CIRCUIT OPEN — ImgBB lagatar {_HOSTING_FAIL_STREAK}x fail; "
+            f"{_CIRCUIT_COOLDOWN_SEC // 60} min tak generation + upload dono band. "
+            "Faltu loop rukega, cooldown ke baad system khud dobara try karega."
+        )
+
 
 async def _upload_to_imgbb(image_bytes: bytes) -> str:
     """
@@ -239,8 +283,14 @@ async def _upload_to_imgbb(image_bytes: bytes) -> str:
 
     last_error: Optional[BaseException] = None
     for attempt in range(1, _IMGBB_MAX_ATTEMPTS + 1):
+        if _run_stopped():
+            raise ImgBBHostingError("Upload aborted — owner ne STOP lagaya hai")
         try:
-            async with httpx.AsyncClient(timeout=60) as client:
+            # Timeout chhota rakho: ImgBB jawab hi na de toh 60s latakne ki
+            # jagah 20s me attempt khatam — 3 attempts ka worst case ~66s.
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=10.0, read=20.0, write=20.0, pool=10.0)
+            ) as client:
                 resp = await client.post(
                     "https://api.imgbb.com/1/upload",
                     data={
@@ -523,6 +573,13 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
     Returns:
         ImgBB hosted URL or None if all models fail
     """
+    if _run_stopped():
+        logger.info("⏸️ [Image Pipeline] STOP active hai — pin skip, koi generation nahi.")
+        return None
+    if _circuit_open():
+        logger.error("⚡ [ImgBB] Circuit OPEN hai — generation bhi skip (ImgBB down, cooldown chal raha hai).")
+        return None
+
     w, h = _get_dims(ratio)
     logger.info(f"🎨 [Image Pipeline] PIN | ratio={ratio} ({w}x{h})")
 
@@ -557,9 +614,18 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
     # Hosting generation se ALAG step hai: upload fail ho toh generation
     # dobara NAHI hoti (upar ke bytes fix hain) — _upload_to_imgbb khud
     # 3 baar wahi bytes retry karta hai. Yahan sirf pehchan ke liye alag log.
+    if _circuit_open():
+        logger.error(
+            "⚡ [ImgBB] Circuit OPEN hai — ImgBB down hai, is pin ki image "
+            "upload try bhi nahi hogi (cooldown chal raha hai)."
+        )
+        return None
     try:
-        return await _upload_to_imgbb(image_bytes)
+        url = await _upload_to_imgbb(image_bytes)
+        _note_hosting_success()
+        return url
     except ImgBBHostingError as e:
+        _note_hosting_failure()
         logger.error(
             f"🛑 [ImgBB] HOSTING FAILURE — image ban gayi thi, upload fail: {e}"
         )
@@ -568,13 +634,25 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
 
 async def upload_raw_image(image_url: str) -> Optional[str]:
     """Download an affiliate product image and re-host on ImgBB."""
+    if _run_stopped():
+        logger.info("⏸️ [Image Pipeline] STOP active hai — product image skip.")
+        return None
+    if _circuit_open():
+        logger.error("⚡ [ImgBB] Circuit OPEN hai — product image skip.")
+        return None
     logger.info(f"⬇️  [Image Pipeline] AFFILIATE_PIN — downloading: {image_url[:60]}...")
     image_bytes = await _download_bytes(image_url)
     if not image_bytes:
         logger.error("❌ [Image Pipeline] Product image download failed.")
         return None
+    if _circuit_open():
+        logger.error("⚡ [ImgBB] Circuit OPEN hai — product image upload skip.")
+        return None
     try:
-        return await _upload_to_imgbb(image_bytes)
+        url = await _upload_to_imgbb(image_bytes)
+        _note_hosting_success()
+        return url
     except ImgBBHostingError as e:
+        _note_hosting_failure()
         logger.error(f"🛑 [ImgBB] HOSTING FAILURE (product image) — upload fail: {e}")
         return None
