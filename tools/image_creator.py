@@ -194,25 +194,96 @@ async def _download_bytes(url: str, timeout: int = _CALL_TIMEOUT) -> Optional[by
         return None
 
 
-async def _upload_to_imgbb(image_bytes: bytes) -> Optional[str]:
+class ImgBBHostingError(Exception):
+    """Hosting failure — image GENERATION safal tha, sirf ImgBB upload
+    fail hua. Generation failure se alag pehchan ke liye alag type:
+    logs/callers dono ko saaf dikhe ki gadbad hosting ki hai, image ki nahi."""
+
+
+_IMGBB_MAX_ATTEMPTS = 3       # sirf UPLOAD retry hoga — generation kabhi dobara nahi
+_IMGBB_EXPIRATION   = 1800    # seconds (30 min) — temporary hosting; pin post
+                              # hote hi Pinterest image apne CDN par le leta hai
+
+
+async def _upload_to_imgbb(image_bytes: bytes) -> str:
+    """
+    ImgBB upload with hosting-only retries.
+
+    Bug history (30 Oct 2026): pehle ye function EK attempt karta tha aur
+    `except: logger.error(f"...{e}")` me sirf exception ka str() chhapta tha —
+    httpx timeouts ka str() aksar KHALI hota hai, aur HTTP error par ImgBB ka
+    asli error message response BODY me hota hai jo raise_for_status() ki
+    wajah se kabhi padha hi nahi jata tha. Nateeja: "Upload failed: " (khaali)
+    aur acchi-bani image ke saath pin fail — agle run me poori generation
+    dobara. Ab:
+      • WAHI bytes par max 3 upload attempts, exponential backoff (2s, 4s)
+      • Har failure par: HTTP status + poora response body + exception type
+        + traceback — kuch chhupa nahi
+      • Key sirf "set hai / length" ke roop me log hoti hai, value kabhi nahi
+      • Response validate hota hai (success flag + https direct URL)
+      • Teeno attempts fail → ImgBBHostingError (generation failure NAHI)
+    """
     if not IMGBB_API_KEY:
-        logger.error("❌ [ImgBB] IMGBB_API_KEY not set.")
-        return None
+        logger.error("❌ [ImgBB] IMGBB_API_KEY config me set NAHI hai.")
+        raise ImgBBHostingError("IMGBB_API_KEY not configured")
+    if not image_bytes or len(image_bytes) < _MIN_VALID_BYTES:
+        raise ImgBBHostingError(
+            f"Invalid image payload: {0 if not image_bytes else len(image_bytes)} bytes"
+        )
+
     encoded = base64.b64encode(image_bytes).decode("utf-8")
-    logger.info(f"⬆️  [ImgBB] Uploading {len(image_bytes):,} bytes (permanent)...")
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                "https://api.imgbb.com/1/upload",
-                data={"key": IMGBB_API_KEY, "image": encoded},
+    logger.info(
+        f"⬆️  [ImgBB] Uploading {len(image_bytes):,} bytes "
+        f"(expiration={_IMGBB_EXPIRATION}s, key: set, length={len(IMGBB_API_KEY)})..."
+    )
+
+    last_error: Optional[BaseException] = None
+    for attempt in range(1, _IMGBB_MAX_ATTEMPTS + 1):
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(
+                    "https://api.imgbb.com/1/upload",
+                    data={
+                        "key": IMGBB_API_KEY,
+                        "image": encoded,
+                        "expiration": str(_IMGBB_EXPIRATION),
+                    },
+                )
+            body = (resp.text or "")[:500]
+            if resp.status_code != 200:
+                logger.error(
+                    f"❌ [ImgBB] Attempt {attempt}/{_IMGBB_MAX_ATTEMPTS} — "
+                    f"HTTP {resp.status_code} | body: {body}"
+                )
+                raise ImgBBHostingError(f"HTTP {resp.status_code}: {body[:200]}")
+            payload = resp.json()
+            data = payload.get("data") or {}
+            url = data.get("url") or ""
+            if payload.get("success") is not True or not url.startswith("https://"):
+                logger.error(
+                    f"❌ [ImgBB] Attempt {attempt}/{_IMGBB_MAX_ATTEMPTS} — "
+                    f"response invalid (success={payload.get('success')}, url={url!r}) | body: {body}"
+                )
+                raise ImgBBHostingError(f"Invalid ImgBB response: {body[:200]}")
+            logger.info(f"✅ [ImgBB] Hosted (attempt {attempt}): {url}")
+            return url
+        except ImgBBHostingError as e:
+            last_error = e
+        except Exception as e:
+            # Asli exception kabhi mat chhupao — type + poora traceback
+            logger.exception(
+                f"❌ [ImgBB] Attempt {attempt}/{_IMGBB_MAX_ATTEMPTS} — "
+                f"{type(e).__name__}: {e}"
             )
-            resp.raise_for_status()
-            url = resp.json()["data"]["url"]
-        logger.info(f"✅ [ImgBB] Hosted: {url}")
-        return url
-    except Exception as e:
-        logger.error(f"❌ [ImgBB] Upload failed: {e}")
-        return None
+            last_error = ImgBBHostingError(f"{type(e).__name__}: {e}")
+        if attempt < _IMGBB_MAX_ATTEMPTS:
+            wait = 2 ** attempt  # 2s, phir 4s
+            logger.info(f"🔁 [ImgBB] {wait}s baad upload dobara try hoga (wahi image, generation NAHI)...")
+            await asyncio.sleep(wait)
+
+    raise ImgBBHostingError(
+        f"All {_IMGBB_MAX_ATTEMPTS} upload attempts failed. Last error: {last_error}"
+    )
 
 
 def _is_valid(image_bytes: Optional[bytes]) -> bool:
@@ -442,7 +513,8 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
       1. Inject 4 focused variety modifiers (angle, lighting, comp, season)
       2. Random seed every call for visual freshness
       3. Try Cloudflare (primary) → HuggingFace (secondary) → Pollinations (last resort)
-      4. Upload result to ImgBB for permanent hosting
+      4. Upload result to ImgBB (temporary hosting, expiration=1800s; upload
+         apne aap me 3 attempts retry karta hai — generation dobara nahi hoti)
 
     Args:
         visual_prompt: The detailed visual prompt from prompts master
@@ -482,7 +554,16 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
         logger.error("❌ [Image Pipeline] All models exhausted — no image generated.")
         return None
 
-    return await _upload_to_imgbb(image_bytes)
+    # Hosting generation se ALAG step hai: upload fail ho toh generation
+    # dobara NAHI hoti (upar ke bytes fix hain) — _upload_to_imgbb khud
+    # 3 baar wahi bytes retry karta hai. Yahan sirf pehchan ke liye alag log.
+    try:
+        return await _upload_to_imgbb(image_bytes)
+    except ImgBBHostingError as e:
+        logger.error(
+            f"🛑 [ImgBB] HOSTING FAILURE — image ban gayi thi, upload fail: {e}"
+        )
+        return None
 
 
 async def upload_raw_image(image_url: str) -> Optional[str]:
@@ -492,4 +573,8 @@ async def upload_raw_image(image_url: str) -> Optional[str]:
     if not image_bytes:
         logger.error("❌ [Image Pipeline] Product image download failed.")
         return None
-    return await _upload_to_imgbb(image_bytes)
+    try:
+        return await _upload_to_imgbb(image_bytes)
+    except ImgBBHostingError as e:
+        logger.error(f"🛑 [ImgBB] HOSTING FAILURE (product image) — upload fail: {e}")
+        return None
