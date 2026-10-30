@@ -243,7 +243,7 @@ def _note_hosting_failure() -> None:
     if _HOSTING_FAIL_STREAK >= _CIRCUIT_THRESHOLD and not _circuit_open():
         _CIRCUIT_OPEN_UNTIL = time.monotonic() + _CIRCUIT_COOLDOWN_SEC
         logger.error(
-            f"⚡ [ImgBB] CIRCUIT OPEN — ImgBB lagatar {_HOSTING_FAIL_STREAK}x fail; "
+            f"⚡ [Hosting] CIRCUIT OPEN — saare hosts lagatar {_HOSTING_FAIL_STREAK}x fail; "
             f"{_CIRCUIT_COOLDOWN_SEC // 60} min tak generation + upload dono band. "
             "Faltu loop rukega, cooldown ke baad system khud dobara try karega."
         )
@@ -334,6 +334,86 @@ async def _upload_to_imgbb(image_bytes: bytes) -> str:
     raise ImgBBHostingError(
         f"All {_IMGBB_MAX_ATTEMPTS} upload attempts failed. Last error: {last_error}"
     )
+
+
+# ── TEMPORARY HOSTING CASCADE (31 Oct 2026 — ImgBB down, owner ka order) ────
+# ImgBB ke servers down chal rahe the (har upload ReadTimeout). Owner ki
+# requirement: hosting TEMPORARY ho (pin post hote hi Pinterest image apne
+# CDN par le leta hai, uske baad hosted copy ka koi kaam nahi), bilkul
+# FREE, bina signup/key, ~30 images/day.
+# Order: Litterbox (24h auto-delete, expiry khud choose hota hai) → Uguu
+# (temporary, ~24h me delete) → ImgBB (ab sirf FALLBACK, apne retry +
+# breaker ke saath). Har temp host par sirf EK tez attempt (25s timeout)
+# — ek host latke toh dusra fauran try hota hai, purana 3-minute wala
+# latakna ab namumkin hai.
+_HOST_UA = {"User-Agent": "Pinteresto/4.0 (Pinterest automation; contact: owner)"}
+_HOST_TIMEOUT = httpx.Timeout(connect=10.0, read=25.0, write=25.0, pool=10.0)
+
+
+def _img_file(image_bytes: bytes) -> tuple:
+    """Magic bytes se asli format pehchano — sahi filename + content-type
+    host ko do (PNG ko .jpg kehna kuch hosts par reject hota hai)."""
+    if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+        return ("pin.png", "image/png")
+    if image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
+        return ("pin.webp", "image/webp")
+    return ("pin.jpg", "image/jpeg")
+
+
+async def _upload_litterbox(image_bytes: bytes) -> str:
+    """Litterbox (Catbox ki temporary service): anonymous upload,
+    time=24h par file khud delete. Response = seedha plain-text URL."""
+    name, mime = _img_file(image_bytes)
+    async with httpx.AsyncClient(timeout=_HOST_TIMEOUT) as client:
+        resp = await client.post(
+            "https://litterbox.catbox.moe/resources/internals/api.php",
+            data={"reqtype": "fileupload", "time": "24h"},
+            files={"fileToUpload": (name, image_bytes, mime)},
+            headers=_HOST_UA,
+        )
+    body = (resp.text or "").strip()
+    if resp.status_code != 200 or not body.startswith("https://"):
+        raise ImgBBHostingError(f"Litterbox HTTP {resp.status_code}: {body[:200]}")
+    return body.splitlines()[0].strip()
+
+
+async def _upload_uguu(image_bytes: bytes) -> str:
+    """Uguu.se: temporary file host (files khud expire hoti hain),
+    koi key/account nahi. JSON response: files[0].url = direct URL."""
+    name, mime = _img_file(image_bytes)
+    async with httpx.AsyncClient(timeout=_HOST_TIMEOUT) as client:
+        resp = await client.post(
+            "https://uguu.se/upload.php",
+            files={"files[]": (name, image_bytes, mime)},
+            headers=_HOST_UA,
+        )
+    body = (resp.text or "")[:300]
+    if resp.status_code != 200:
+        raise ImgBBHostingError(f"Uguu HTTP {resp.status_code}: {body}")
+    payload = resp.json()
+    url = ((payload.get("files") or [{}])[0].get("url") or "")
+    if not payload.get("success") or not url.startswith("https://"):
+        raise ImgBBHostingError(f"Uguu invalid response: {body}")
+    return url
+
+
+async def _upload_hosted(image_bytes: bytes) -> str:
+    """Hosting ka ek darwaza — andar cascade hai:
+    Litterbox → Uguu → ImgBB (fallback). Sab fail toh ImgBBHostingError
+    (circuit breaker isi ko ginata hai)."""
+    if _run_stopped():
+        raise ImgBBHostingError("Upload aborted — owner ne STOP lagaya hai")
+    for host_name, fn in (("Litterbox", _upload_litterbox), ("Uguu", _upload_uguu)):
+        try:
+            url = await fn(image_bytes)
+            logger.info(f"✅ [Hosting:{host_name}] Hosted (temporary): {url}")
+            return url
+        except Exception as e:
+            logger.warning(
+                f"⚠️ [Hosting:{host_name}] fail — {type(e).__name__}: {str(e)[:150]} — agla host try..."
+            )
+    logger.info("🔁 [Hosting] Dono temp hosts fail — ImgBB fallback (retry wala)...")
+    return await _upload_to_imgbb(image_bytes)
 
 
 def _is_valid(image_bytes: Optional[bytes]) -> bool:
@@ -563,8 +643,9 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
       1. Inject 4 focused variety modifiers (angle, lighting, comp, season)
       2. Random seed every call for visual freshness
       3. Try Cloudflare (primary) → HuggingFace (secondary) → Pollinations (last resort)
-      4. Upload result to ImgBB (temporary hosting, expiration=1800s; upload
-         apne aap me 3 attempts retry karta hai — generation dobara nahi hoti)
+      4. Upload result to temporary hosting cascade — Litterbox (24h) →
+         Uguu → ImgBB fallback (har host sirf upload retry karta hai,
+         generation dobara nahi hoti)
 
     Args:
         visual_prompt: The detailed visual prompt from prompts master
@@ -621,13 +702,13 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
         )
         return None
     try:
-        url = await _upload_to_imgbb(image_bytes)
+        url = await _upload_hosted(image_bytes)
         _note_hosting_success()
         return url
     except ImgBBHostingError as e:
         _note_hosting_failure()
         logger.error(
-            f"🛑 [ImgBB] HOSTING FAILURE — image ban gayi thi, upload fail: {e}"
+            f"🛑 [Hosting] HOSTING FAILURE — image ban gayi thi, saare hosts fail: {e}"
         )
         return None
 
@@ -649,10 +730,10 @@ async def upload_raw_image(image_url: str) -> Optional[str]:
         logger.error("⚡ [ImgBB] Circuit OPEN hai — product image upload skip.")
         return None
     try:
-        url = await _upload_to_imgbb(image_bytes)
+        url = await _upload_hosted(image_bytes)
         _note_hosting_success()
         return url
     except ImgBBHostingError as e:
         _note_hosting_failure()
-        logger.error(f"🛑 [ImgBB] HOSTING FAILURE (product image) — upload fail: {e}")
+        logger.error(f"🛑 [Hosting] HOSTING FAILURE (product image) — saare hosts fail: {e}")
         return None
