@@ -75,8 +75,57 @@ def _is_image(file: dict) -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 
 
+def _analyze_cloudflare(image_path: str, prompt: str) -> dict:
+    """Cloudflare Workers AI VISION fallback — Gemini ki dono keys fail
+    hon tab (owner ka order, 30 Oct 2026: CF vision yahin, prompt-banane
+    wale hisse me, Gemini ke saath fallback bankar rahega).
+
+    Model: @cf/meta/llama-3.2-11b-vision-instruct (Workers AI catalog ka
+    vision model, free neurons). OpenAI-compatible chat completions par
+    image data-URI ke roop me jati hai — wahi prompt, wahi JSON shape jo
+    Gemini path return karta hai. Creds wahi jo image pipeline pehle se
+    use karti hai (config CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN).
+    """
+    import base64 as _b64
+    import re as _re
+    import httpx as _httpx
+    from config import CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN
+
+    if not CLOUDFLARE_ACCOUNT_ID or not CLOUDFLARE_API_TOKEN:
+        raise RuntimeError("Cloudflare creds not configured — vision fallback unavailable")
+
+    ext = os.path.splitext(image_path)[1].lower()
+    mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+            ".webp": "image/webp", ".gif": "image/gif"}.get(ext, "image/jpeg")
+    with open(image_path, "rb") as f:
+        data_uri = f"data:{mime};base64," + _b64.b64encode(f.read()).decode()
+
+    url = (f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}"
+           f"/ai/v1/chat/completions")
+    payload = {
+        "model": os.environ.get("CF_VISION_MODEL", "@cf/meta/llama-3.2-11b-vision-instruct"),
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": data_uri}},
+            ],
+        }],
+        "temperature": 0.7,
+        "max_tokens": 2000,
+    }
+    with _httpx.Client(timeout=120) as client:
+        resp = client.post(url, headers={"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}"}, json=payload)
+        resp.raise_for_status()
+        text = resp.json()["choices"][0]["message"]["content"] or ""
+    # Model kabhi ```json fence me lapet deta hai — pehle saaf JSON object nikalo
+    m = _re.search(r"\{.*\}", text, _re.S)
+    return json.loads(m.group(0) if m else text.strip())
+
+
 def analyze_image(image_path: str) -> dict:
-    """Gemini Vision ka use karke strict dynamic JSON extract karta hai."""
+    """Gemini Vision ka use karke strict dynamic JSON extract karta hai.
+    Gemini dono keys fail → Cloudflare Vision fallback (llama-3.2-11b)."""
     prompt = """
     You are an Elite Visual Art Director and Reverse-Engineering Expert.
     Analyze the provided image and extract its complete aesthetic DNA into a strict JSON format.
@@ -115,9 +164,16 @@ def analyze_image(image_path: str) -> dict:
             return json.loads(response.text.strip())
         except Exception as e:
             logging.warning(f"⚠️ {label} key failed: {e}")
-            if attempt == 1:
-                raise
-    raise RuntimeError("Both Gemini API keys failed.")
+    # Gemini ki dono keys fail — Cloudflare Vision fallback (alag provider,
+    # Gemini ke peak par bhi feeder nahi rukega)
+    try:
+        logging.info("☁️ Gemini down — Cloudflare Vision fallback try ho raha hai...")
+        result = _analyze_cloudflare(image_path, prompt)
+        logging.info("☁️✅ Cloudflare Vision ne image analyze kar diya.")
+        return result
+    except Exception as cf_e:
+        logging.warning(f"⚠️ Cloudflare Vision fallback bhi fail: {cf_e}")
+    raise RuntimeError("Both Gemini API keys failed, Cloudflare Vision fallback bhi fail.")
 
 def download_from_drive(file_id: str, file_name: str):
     """Drive se temporarily local storage me image download karta hai."""
