@@ -81,14 +81,26 @@ def _analyze_cloudflare(image_path: str, prompt: str) -> dict:
     wale hisse me, Gemini ke saath fallback bankar rahega).
 
     Model: @cf/meta/llama-3.2-11b-vision-instruct (Workers AI catalog ka
-    vision model, free neurons). OpenAI-compatible chat completions par
-    image data-URI ke roop me jati hai — wahi prompt, wahi JSON shape jo
-    Gemini path return karta hai. Creds wahi jo image pipeline pehle se
-    use karti hai (config CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN).
+    vision model, free neurons). Wahi prompt, wahi JSON shape jo Gemini
+    path return karta hai. Creds wahi jo image pipeline pehle se use
+    karti hai (config CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN).
+
+    ⚠️ ENDPOINT FIX (30 Oct 2026, production 403 ke baad): pehle ye
+    OpenAI-compatible `/ai/v1/chat/completions` par jata tha — production
+    me wahan se 403 Forbidden aaya (woh surface alag permission/feature
+    gate ke peeche hai; hamara token wahan authorize nahi hota). Ab ye
+    model ke DOCUMENTED REST endpoint `/ai/run/<model>` par jata hai —
+    wahi base path + Bearer token pattern jo image generation production
+    me roz safal use karta hai (Workers AI Read/Write permission hi
+    chahiye). Image messages ke andar data-URI part ke roop me jati hai
+    (docs: messages me image part, HTTP URL nahi chalega — data URI hi).
+    Error par status + body hamesha log hota hai (raise_for_status body
+    ko chhupa deta tha — ImgBB wali seekh).
     """
     import base64 as _b64
     import re as _re
     import httpx as _httpx
+    import logging as _logging
     from config import CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN
 
     if not CLOUDFLARE_ACCOUNT_ID or not CLOUDFLARE_API_TOKEN:
@@ -100,10 +112,10 @@ def _analyze_cloudflare(image_path: str, prompt: str) -> dict:
     with open(image_path, "rb") as f:
         data_uri = f"data:{mime};base64," + _b64.b64encode(f.read()).decode()
 
+    model = os.environ.get("CF_VISION_MODEL", "@cf/meta/llama-3.2-11b-vision-instruct")
     url = (f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}"
-           f"/ai/v1/chat/completions")
+           f"/ai/run/{model}")
     payload = {
-        "model": os.environ.get("CF_VISION_MODEL", "@cf/meta/llama-3.2-11b-vision-instruct"),
         "messages": [{
             "role": "user",
             "content": [
@@ -116,8 +128,15 @@ def _analyze_cloudflare(image_path: str, prompt: str) -> dict:
     }
     with _httpx.Client(timeout=120) as client:
         resp = client.post(url, headers={"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}"}, json=payload)
+    if resp.status_code != 200:
+        _logging.error(
+            f"❌ [CF Vision] HTTP {resp.status_code} | body: {(resp.text or '')[:400]}"
+        )
         resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"] or ""
+    body = resp.json()
+    if body.get("success") is False:
+        raise RuntimeError(f"Cloudflare vision API error: {str(body.get('errors'))[:300]}")
+    text = (body.get("result") or {}).get("response") or ""
     # Model kabhi ```json fence me lapet deta hai — pehle saaf JSON object nikalo
     m = _re.search(r"\{.*\}", text, _re.S)
     return json.loads(m.group(0) if m else text.strip())

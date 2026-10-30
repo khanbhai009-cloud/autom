@@ -45,6 +45,20 @@ def invalidate_cache() -> None:
     _cache_ts = 0.0
 
 
+def _cell(value) -> str:
+    """Sheets cell hamesha STRING hona chahiye. Vision models `tags` (aur
+    kabhi kabhi doosre fields) ko JSON array me bhej dete hain jabki prompt
+    unse comma-separated string maangta hai — list seedha append_row me
+    jata tha toh Google Sheets API 400 deta tha:
+    'Invalid values[383][6]: list_value {...}' (30 Oct 2026 production).
+    List/tuple → ", ".join; None → ""; baaki → str()."""
+    if value is None:
+        return ""
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(v) for v in value)
+    return str(value)
+
+
 def append_prompt_row(data: dict) -> None:
     """
     Vision Feeder se extract ki gayi DNA row ko Prompts_Master mein append karo.
@@ -54,13 +68,13 @@ def append_prompt_row(data: dict) -> None:
     def _write():
         ws  = _open_worksheet("Prompts_Master")
         row = [
-            data.get("style_key",      ""),
-            data.get("account",        "account_1"),
-            data.get("label",          ""),
-            data.get("description",    ""),
-            data.get("t2i_base",       ""),
-            data.get("niche_affinity", ""),
-            data.get("tags",           ""),
+            _cell(data.get("style_key",      "")),
+            _cell(data.get("account",        "account_1")),
+            _cell(data.get("label",          "")),
+            _cell(data.get("description",    "")),
+            _cell(data.get("t2i_base",       "")),
+            _cell(data.get("niche_affinity", "")),
+            _cell(data.get("tags",           "")),
         ]
         ws.append_row(row)
 
