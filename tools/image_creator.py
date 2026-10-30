@@ -1,18 +1,10 @@
 """
-tools/image_creator.py — T2I Image Pipeline  [VARIETY ENGINE v4 — CLEAN & OPTIMIZED]
+tools/image_creator.py — Triple-Layer T2I Image Pipeline  [VARIETY ENGINE v4 — CLEAN & OPTIMIZED]
 
 MODELS (in order):
-  1. Cloudflare     — @cf/black-forest-labs/flux-2-klein-4b (Primary, free)
-  2. Replicate      — black-forest-labs/flux-schnell (V4 addition; only when
-                      REPLICATE_API_TOKEN is set — $0.003/img, identical
-                      schnell output for Cloudflare 5xx/outage days)
-  3. Hugging Face   — black-forest-labs/FLUX.1-schnell (legacy; HF removed
-                      schnell from hf-inference in Jul 2026 — 410 fast-bail)
-  4. Pollinations   — free, URL-based (Last resort fallback)
-
-Cloudflare 520-524 (incl. 523 "origin unreachable") are transient infra
-errors per Cloudflare's own docs — the retry loop below already absorbs the
-common case; a persistent 523 is exactly what the Replicate layer is for.
+  1. Cloudflare     — @cf/black-forest-labs/flux-1-schnell (Primary)
+  2. Hugging Face   — black-forest-labs/FLUX.1-schnell (Secondary fallback)
+  3. Pollinations   — free, URL-based (Last resort fallback)
 
 VARIETY ENGINE v4 — What changed from v3:
   REMOVED (were hurting quality):
@@ -38,11 +30,9 @@ RATIO SUPPORT:
 
 import asyncio
 import base64
-import json
 import logging
 import os
 import random
-import re
 import urllib.parse
 from typing import Optional
 
@@ -56,33 +46,10 @@ from config import (
     POLLINATIONS_MODEL
 )
 
-try:
-    from config import IMAGE_MOOD_ENGINE as _IMAGE_MOOD_ENGINE_CFG
-except Exception:  # older config without the switches section
-    _IMAGE_MOOD_ENGINE_CFG = None
-
-try:
-    from config import IMAGE_VISION_GATE as _IMAGE_VISION_GATE_CFG
-except Exception:  # older config without the switches section
-    _IMAGE_VISION_GATE_CFG = None
-
-try:
-    from config import GEMINI_API_KEY as _GEMINI_API_KEY_CFG
-    from config import GEMINI_CMO_MODEL as _GEMINI_MODEL_CFG
-except Exception:
-    _GEMINI_API_KEY_CFG = None
-    _GEMINI_MODEL_CFG = None
-
 logger = logging.getLogger(__name__)
 
 # ── HuggingFace token from env ─────────────────────────────────────────────────
 HF_API_TOKEN = os.environ.get("HF_TOKEN", "")
-
-# ── Replicate token from env (V4 fallback layer — off until set) ───────────────
-REPLICATE_API_TOKEN = os.environ.get("REPLICATE_API_TOKEN", "")
-_REPLICATE_FLUX_URL = "https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions"
-_REP_MAX_RETRIES    = 2
-_REP_RETRY_DELAY    = 10
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 _CALL_TIMEOUT        = 180
@@ -103,15 +70,12 @@ _POLLINATIONS_BASE = "https://image.pollinations.ai/prompt"
 _HF_FLUX_URL       = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
 
 # ── Negative prompt — always appended to block garbage outputs ─────────────────
-# V5 note: "dark, moody, gloomy, desaturated" were REMOVED — they banned the
-# warm evening/candlelit moods the Mood Engine now deliberately creates.
-# Quality negatives stay; mood is steered by the positive prompt instead.
 _NEGATIVE_PROMPT = (
     "ugly, blurry, watermark, text overlay, logo, signature, "
     "cartoon, anime, illustration, drawing, painting, CGI plastic, "
     "overexposed, underexposed, low quality, jpeg artifacts, "
     "distorted, deformed, duplicate, cropped, frame, border, "
-    "harsh shadows, cluttered mess, dull flat lighting"
+    "dark, moody, noir, desaturated, gloomy, depressing"
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -151,7 +115,7 @@ _COMP_STYLES = [
     "perfect centered symmetry, interior architecture",
     "leading lines drawing eye through room depth",
     "layered depth: close props, mid furniture, background wall",
-    "foreground plant framing the subject in clear focus",
+    "foreground bokeh flower or plant framing subject",
     "wide establishing room context shot",
     "tight detail crop isolating single beautiful prop",
     "s-curve natural flow composition",
@@ -173,279 +137,45 @@ _SEASONS_WEATHER = [
 ]
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# VARIETY ENGINE v5 — MOOD & STORY LAYER (owner request, 29 Oct 2026)
-#
-# Why: the same Sheets prompts kept producing the same FEEL — v4 only varied
-# angle/light/composition/season inside one bright-daylight family. v5 adds
-# the missing dimension: a MOOD with a small lived-in STORY (storytelling
-# props), scene-aware (garden vs interior), including warm romantic moods
-# ("evening for two", "rainy window", "love story moment").
-#
-# This runs inside generate_pin_image(), the single choke point that BOTH
-# prompt paths pass through — the CMO's expanded prompt AND the Sheets
-# t2i_base used on fallback — so every image gets enhanced, whichever path
-# produced its prompt. Zero LLM calls, zero quota: pure composition.
-# An anti-repeat history (data/variety_history.json) re-rolls combos that
-# were used recently. Disable with IMAGE_MOOD_ENGINE=off (falls back to v4).
-# ══════════════════════════════════════════════════════════════════════════════
-
-# Switch config.py ke "SAARE ON/OFF SWITCHES" section se aata hai
-# (Render env IMAGE_MOOD_ENGINE se badalta hai); config purana ho toh
-# yahi file env padh legi.
-if _IMAGE_MOOD_ENGINE_CFG is not None:
-    MOOD_ENGINE_ENABLED = bool(_IMAGE_MOOD_ENGINE_CFG)
-else:
-    MOOD_ENGINE_ENABLED = os.environ.get("IMAGE_MOOD_ENGINE", "on").strip().lower() not in ("off", "false", "0", "no")
-
-# Vision gate switch — same pattern (config first, env fallback).
-if _IMAGE_VISION_GATE_CFG is not None:
-    VISION_GATE_ENABLED = bool(_IMAGE_VISION_GATE_CFG)
-else:
-    VISION_GATE_ENABLED = os.environ.get("IMAGE_VISION_GATE", "on").strip().lower() not in ("off", "false", "0", "no")
-
-# Each mood: name, scenes it fits, its own lighting, 1-2 story props picked
-# at random, and an optional season override (a winter-hearth mood must not
-# collide with a spring season line).
-_MOODS = [
-    {"name": "candlelit_evening_for_two", "scenes": ("interior",), "season": None,
-     "lighting": "warm candlelit evening glow with soft golden ambient light",
-     "props": ["two steaming mugs side by side on a wooden tray",
-               "an open book resting on a shared knitted throw over the sofa",
-               "two glasses and a small vase of roses on the side table"]},
-    {"name": "lazy_sunday_morning", "scenes": ("interior",), "season": None,
-     "lighting": "soft lazy morning light through linen curtains",
-     "props": ["a breakfast tray for two with croissants and coffee",
-               "rumpled soft bedding and an open paperback left mid-chapter"]},
-    {"name": "rainy_window_evening", "scenes": ("interior",), "season": "rainy evening outside, droplets glistening on the window glass",
-     "lighting": "cozy warm interior light against a rainy window evening",
-     "props": ["two cups of tea beside a rain-streaked window",
-               "a shared blanket and a small stack of novels by the armchair"]},
-    {"name": "fireside_winter_night", "scenes": ("interior",), "season": "snowy winter evening outside the window",
-     "lighting": "flickering fireplace glow with warm amber light",
-     "props": ["two armchairs angled toward the fire with a shared throw",
-               "hot chocolate mugs and a plate of cookies on the table between them"]},
-    {"name": "golden_hour_garden_for_two", "scenes": ("garden",), "season": None,
-     "lighting": "romantic golden hour backlight through garden foliage",
-     "props": ["a garden bench for two with cushions and a shared shawl",
-               "two lemonade glasses on a small iron table"]},
-    {"name": "fairy_light_evening", "scenes": ("garden",), "season": "soft summer dusk",
-     "lighting": "twinkling string lights at dusk with warm bokeh",
-     "props": ["a candlelit table for two under string lights",
-               "two chairs pulled close around a small glowing fire bowl"]},
-    {"name": "botanical_morning", "scenes": ("interior", "garden"), "season": None,
-     "lighting": "fresh greenhouse morning light filtering through leaves",
-     "props": ["a watering can and freshly cut flowers in a ceramic jug",
-               "an open garden journal and terracotta pots on the bench"]},
-    {"name": "seaside_breeze", "scenes": ("interior", "garden"), "season": None,
-     "lighting": "bright sea-breeze daylight, white and airy",
-     "props": ["striped linen draped over a woven basket",
-               "a bowl of lemons and a glass pitcher on the table"]},
-    {"name": "autumn_harvest", "scenes": ("interior", "garden"), "season": "golden autumn day, amber leaves drifting",
-     "lighting": "warm autumn afternoon light with amber tones",
-     "props": ["pumpkins and a basket of apples by the door",
-               "a plaid throw folded over the chair arm"]},
-    {"name": "zen_calm", "scenes": ("interior",), "season": None,
-     "lighting": "serene soft daylight, calm and uncluttered",
-     "props": ["a single ceramic vase with eucalyptus stems",
-               "stacked linen cushions in soft neutral tones"]},
-    {"name": "vintage_film_afternoon", "scenes": ("interior",), "season": None,
-     "lighting": "nostalgic warm afternoon light like vintage film",
-     "props": ["a record player with vinyl sleeves leaning on the shelf",
-               "polaroid photos pinned in a row above the desk"]},
-    {"name": "festive_hearth", "scenes": ("interior",), "season": "cozy winter celebration season",
-     "lighting": "festive warm glow with twinkling accent lights",
-     "props": ["a garland with oranges and cinnamon sticks on the mantel",
-               "wrapped gifts and a bowl of walnuts by the tree"]},
-    {"name": "market_morning", "scenes": ("interior", "garden"), "season": None,
-     "lighting": "cheerful market-morning brightness",
-     "props": ["a basket of fresh bread and sunflowers",
-               "jam jars on a checked cloth on the table"]},
-    {"name": "love_story_moment", "scenes": ("interior", "garden"), "season": None,
-     "lighting": "dreamy golden light with a soft romantic glow, main subject in sharp focus",
-     "props": ["in the blurred background, a couple seen from behind holding hands, faces not visible",
-               "two coffee cups side by side and one shared open book in the foreground"]},
-]
-
-# One short sensory detail — the texture v4 removed for bloat, back in a
-# single-phrase budget so prompts stay lean.
-_MICRO_DETAILS = [
-    "visible linen and warm wood-grain textures",
-    "soft dew drops glistening on leaves",
-    "gentle steam rising from a warm cup",
-    "delicate lace-curtain shadows on the wall",
-    "ceramic glaze catching the light",
-    "a few fresh petals scattered naturally",
-    "warm wood tones with brushed brass accents",
-    "crisp folded textiles in soft layers",
-]
-
-_GARDEN_WORDS = ("garden", "backyard", "patio", "porch", "terrace", "balcony",
-                 "greenhouse", "lawn", "cottage exterior", "flower bed", "courtyard")
-
-_HISTORY_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "data", "variety_history.json",
-)
-_HISTORY_CAP = 60
-
-
-def _detect_scene(base_prompt: str) -> str:
-    text = base_prompt.lower()
-    return "garden" if any(w in text for w in _GARDEN_WORDS) else "interior"
-
-
-def _load_history() -> list:
-    try:
-        import json
-        with open(_HISTORY_PATH, encoding="utf-8") as fh:
-            data = json.load(fh)
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
-
-
-def _save_history(history: list) -> None:
-    try:
-        import json
-        os.makedirs(os.path.dirname(_HISTORY_PATH), exist_ok=True)
-        with open(_HISTORY_PATH, "w", encoding="utf-8") as fh:
-            json.dump(history[-_HISTORY_CAP:], fh)
-    except Exception:
-        pass  # history is best-effort; never block an image over it
-
-
-def _pick_variety_modifiers(base_prompt: str = "") -> dict:
-    """Pick variety modifiers — v5 mood-aware when enabled, else v4 pools."""
-    if not MOOD_ENGINE_ENABLED:
-        return {
-            "angle":    random.choice(_CAMERA_ANGLES),
-            "lighting": random.choice(_LIGHTING_MOODS),
-            "comp":     random.choice(_COMP_STYLES),
-            "season":   random.choice(_SEASONS_WEATHER),
-            "mood":     "legacy_v4",
-            "props":    "",
-            "detail":   "",
-        }
-
-    scene = _detect_scene(base_prompt)
-    fitting = [m for m in _MOODS if scene in m["scenes"]] or _MOODS
-    history = _load_history()
-
-    # Anti-repeat: re-roll the (mood, angle, comp) combo if it was used in
-    # the recent window — same base prompt must not produce the same look.
-    best = None
-    for _attempt in range(6):
-        mood = random.choice(fitting)
-        angle = random.choice(_CAMERA_ANGLES)
-        comp = random.choice(_COMP_STYLES)
-        key = mood["name"] + "|" + angle + "|" + comp
-        best = (mood, angle, comp, key)
-        if key not in history:
-            break
-    mood, angle, comp, key = best
-    history.append(key)
-    _save_history(history)
-
-    props = ", ".join(random.sample(mood["props"], k=min(2, len(mood["props"]))))
+def _pick_variety_modifiers() -> dict:
+    """Pick one random modifier from each of the 4 focused pools."""
     return {
-        "angle":    angle,
-        "lighting": mood["lighting"],
-        "comp":     comp,
-        "season":   mood["season"] or random.choice(_SEASONS_WEATHER),
-        "mood":     mood["name"],
-        "props":    props,
-        "detail":   random.choice(_MICRO_DETAILS),
+        "angle":    random.choice(_CAMERA_ANGLES),
+        "lighting": random.choice(_LIGHTING_MOODS),
+        "comp":     random.choice(_COMP_STYLES),
+        "season":   random.choice(_SEASONS_WEATHER),
     }
 
 
-async def _inject_variety(base_prompt: str) -> tuple[str, dict]:
+def _inject_variety(base_prompt: str) -> tuple[str, dict]:
     """
-    Preserve the complete scene prompt and ask Gemini for a faithful variation.
-    The LLM may rephrase for clarity and vary camera framing/light direction,
-    but must not add, remove, merge, or substitute scene objects.
+    Inject 4 focused variety modifiers into the base prompts-master visual_prompt.
+    Keeps total prompt lean (~350-450 chars) so the model stays on-theme.
+    Returns (enriched_prompt, modifiers_used) — modifiers logged for debugging.
     """
-    original = str(base_prompt or "").strip()
-    if not original:
-        return original, {"mood": "empty_prompt", "method": "none"}
+    mods = _pick_variety_modifiers()
 
-    client = _get_gate_client()
-    if client is not None:
-        model = os.environ.get("IMAGE_PROMPT_VARIATION_MODEL") or _GEMINI_MODEL_CFG or "gemini-2.5-flash"
-        variation_instruction = (
-            "You are a professional interior/ lifestyle photography art director. "
-            "Rewrite the user's complete image prompt into ONE clear, photorealistic image-generation prompt. "
-            "Preserve every required object, furniture type, material, color, placement relationship, and style. "
-            "Do not shorten it or omit details. Do not add any new objects or people. "
-            "Never combine object identities (a bed must remain a bed; a sofa must remain a sofa). "
-            "Keep the scene physically plausible, with realistic proportions, contact shadows, natural material texture, "
-            "fine fabric/wood/stone detail, believable light falloff, and crisp focus across the main scene. "
-            "Vary only the camera viewpoint/framing and light direction subtly when compatible with the prompt. "
-            "No bokeh, blur, soft focus, dreamy glow, surreal styling, CGI/plastic surfaces, or invented decorations. "
-            "Do not add claims like 8K/4K as a substitute for detail. Return ONLY the rewritten prompt, no commentary.\n\n"
-            "ORIGINAL PROMPT (all requirements must be retained):\n"
-            + original
-        )
-        try:
-            def _call_variation() -> str:
-                from google.genai import types
-                resp = client.models.generate_content(
-                    model=model,
-                    contents=variation_instruction,
-                    config=types.GenerateContentConfig(
-                        temperature=0.65, max_output_tokens=1200
-                    ),
-                )
-                return (resp.text or "").strip()
-
-            rewritten = await asyncio.to_thread(_call_variation)
-            # Refuse suspiciously short outputs; a failed rewrite must never
-            # replace the complete source prompt with a lossy summary.
-            if rewritten and len(rewritten) >= min(250, int(len(original) * 0.55)):
-                logger.info("🧠 [PromptVariation] Gemini rewrite accepted (%s → %s chars)", len(original), len(rewritten))
-                return rewritten, {"mood": "llm_photorealistic", "method": "gemini"}
-            logger.warning("⚠️ [PromptVariation] Rewrite too short; using full original prompt")
-        except Exception as e:
-            logger.warning("⚠️ [PromptVariation] Gemini unavailable (%s); using safe fallback", type(e).__name__)
-
-    # Safe fallback: preserve the prompt and add only photographic constraints.
-    # No random props, seasons, moods, or composition phrases that can conflict.
-    suffix = (
-        " Photorealistic interior photography, physically accurate furniture geometry, "
-        "natural material textures, realistic contact shadows and reflections, balanced exposure, "
-        "crisp focus on the complete main scene, no blur or soft focus, no extra objects."
+    variety_block = (
+        f"{mods['angle']}, {mods['lighting']}, "
+        f"{mods['comp']}, {mods['season']}"
     )
-    return original.rstrip(" .") + "." + suffix, {"mood": "safe_fallback", "method": "fallback"}
+
+    quality_tail = "4K ultra HD, photorealistic, highly detailed, award-winning photography"
+
+    # Strip existing quality tail if prompts master already added it, re-add cleanly
+    base_clean = base_prompt.replace(quality_tail, "").rstrip(", ").strip()
+
+    enriched = f"{base_clean}, {variety_block}, {quality_tail}"
+    return enriched, mods
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-_QUALITY_TAIL = (
-    "4K ultra HD, photorealistic, razor-sharp focus on the main subject, "
-    "crisp fine details, highly detailed, award-winning photography"
-)
-
-
-def _enrich_prompt(prompt: str, max_chars: int = 4000) -> str:
-    """Quality tail hamesha rakho — truncation use KABHI na kaate.
-
-    Purana bug (quality girne ki jad, 30 Oct 2026): cap 750 tha aur kataav
-    seedha END se hota tha. Variety engine ke baad prompts 850+ chars ke
-    ho gaye, toh har image ka quality tail hi kat jata tha — model ko
-    '4K... photorealistic... sharp' wala hissa milta hi nahi tha, images
-    soft/blurry aati thin. Ab: cap 1400, aur lamba ho toh BASE ka beech
-    kat-ta hai, tail hamesha poora rehta hai.
-    """
+def _enrich_prompt(prompt: str, max_chars: int = 600) -> str:
+    """Ensure quality tail present, then truncate. Variety already injected upstream."""
     base = prompt.strip()
     if "4K" not in base and "4k" not in base:
-        base += ", " + _QUALITY_TAIL
-    if len(base) <= max_chars:
-        return base
-    marker = ", 4K ultra HD"
-    idx = base.rfind(marker)
-    if idx > 0:
-        head, tail = base[:idx], base[idx:]
-        return head[: max_chars - len(tail)] + tail
+        base += ", 4K ultra HD, photorealistic, highly detailed, award-winning photography"
     return base[:max_chars]
 
 
@@ -510,65 +240,24 @@ async def _cloudflare_once(prompt: str, ratio: str) -> Optional[bytes]:
         "User-Agent":    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    model = str(CLOUDFLARE_IMAGE_MODEL)
+    # FIXED PAYLOAD: Removed seed, width, height, num_steps, and negative_prompt
+    payload = {
+        "prompt": enriched
+    }
 
     async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
-        if "flux-2" in model:
-            # FLUX.2 (klein/dev): multipart form, supports real width/height (256-1920)
-            form = {
-                "prompt": (None, enriched),
-                "width":  (None, str(w)),
-                "height": (None, str(h)),
-            }
-            resp = await client.post(
-                url,
-                headers={k: v for k, v in headers.items() if k != "Content-Type"},
-                files=form,
-            )
-        else:
-            # flux-1-schnell: ONLY prompt + steps (max 8). No width/height -> always 1024x1024.
-            resp = await client.post(url, headers=headers, json={"prompt": enriched, "steps": 8})
+        resp = await client.post(url, headers=headers, json=payload)
         resp.raise_for_status()
 
         if "application/json" in resp.headers.get("content-type", "").lower():
             data    = resp.json()
             b64_str = data.get("result", {}).get("image", "")
             if b64_str:
-                img = base64.b64decode(b64_str)
-            else:
-                logger.error(f"❌ [Cloudflare] No image in response: {str(data)[:200]}")
-                return None
+                return base64.b64decode(b64_str)
+            logger.error(f"❌ [Cloudflare] No image in response: {str(data)[:200]}")
+            return None
         else:
-            img = resp.content
-
-    # schnell can't do 9:16 -> crop square to ratio + upscale (only if needed)
-    if "flux-2" not in model:
-        img = _fit_to_ratio(img, ratio)
-    return img
-
-
-def _fit_to_ratio(img_bytes: bytes, ratio: str) -> bytes:
-    """Center-crop to target ratio, resize with LANCZOS. Needs Pillow; falls back to raw bytes."""
-    try:
-        import io
-        from PIL import Image
-        w, h = _get_dims(ratio)
-        im = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-        iw, ih = im.size
-        target = w / h
-        if iw / ih > target:            # too wide -> crop sides
-            nw = int(ih * target)
-            im = im.crop(((iw - nw) // 2, 0, (iw - nw) // 2 + nw, ih))
-        elif iw / ih < target:          # too tall -> crop top/bottom
-            nh = int(iw / target)
-            im = im.crop((0, (ih - nh) // 2, iw, (ih - nh) // 2 + nh))
-        im = im.resize((w, h), Image.LANCZOS)
-        out = io.BytesIO()
-        im.save(out, format="JPEG", quality=95, subsampling=0)
-        return out.getvalue()
-    except Exception as e:
-        logger.warning(f"⚠️ [Ratio fit] skipped: {e!r}")
-        return img_bytes
+            return resp.content
 
 
 async def _t2i_cloudflare(prompt: str, ratio: str) -> Optional[bytes]:
@@ -591,76 +280,18 @@ async def _t2i_cloudflare(prompt: str, ratio: str) -> Optional[bytes]:
             logger.info(f"⏳ [Cloudflare] Waiting {delay}s before retry...")
             await asyncio.sleep(delay)
 
-    logger.error("❌ [Cloudflare] All attempts failed — moving to Replicate.")
+    logger.error("❌ [Cloudflare] All attempts failed — moving to HuggingFace.")
     return None
 
 
-# ── Model 2: Replicate FLUX schnell (V4 — Cloudflare outage fallback) ─────────
-# Official model endpoint with Prefer: wait — Replicate runs the prediction
-# synchronously and returns output image URLs. Same schnell model family as
-# the old HF layer, so fallback pins keep the same visual character.
-# Cost: $0.003 per output image (flat) — even a full month of fallback
-# traffic (~600 pins) is under $2. Layer is OFF until REPLICATE_API_TOKEN
-# is set in the environment.
-
-async def _replicate_once(prompt: str, ratio: str) -> Optional[bytes]:
-    enriched = _enrich_prompt(prompt, max_chars=4000)
-    headers = {
-        "Authorization": f"Bearer {REPLICATE_API_TOKEN}",
-        "Content-Type": "application/json",
-        "Prefer": "wait",
-    }
-    payload = {
-        "input": {
-            "prompt": enriched,
-            "aspect_ratio": "9:16" if ratio == "9:16" else "1:1",
-            "output_format": "jpg",
-            "output_quality": 90,
-            "num_outputs": 1,
-        }
-    }
-    async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
-        resp = await client.post(_REPLICATE_FLUX_URL, headers=headers, json=payload)
-        resp.raise_for_status()
-        data = resp.json()
-        output = data.get("output") or []
-        if isinstance(output, str):
-            output = [output]
-        if not output:
-            logger.error(f"❌ [Replicate] No output in response: {str(data)[:200]}")
-            return None
-        return await _download_bytes(output[0])
-
-
-async def _t2i_replicate(prompt: str, ratio: str) -> Optional[bytes]:
-    if not REPLICATE_API_TOKEN:
-        logger.info("ℹ️ [Replicate] REPLICATE_API_TOKEN not set — layer skipped.")
-        return None
-    for attempt in range(1, _REP_MAX_RETRIES + 1):
-        try:
-            logger.info(f"🎨 [Replicate] Attempt {attempt}/{_REP_MAX_RETRIES} | ratio={ratio}")
-            img = await _replicate_once(prompt, ratio)
-            if _is_valid(img):
-                logger.info(f"✅ [Replicate] {len(img):,} bytes on attempt {attempt}")
-                return img
-            logger.warning(f"⚠️ [Replicate] Attempt {attempt}: invalid/too small")
-        except Exception as e:
-            logger.warning(f"⚠️ [Replicate] Attempt {attempt} error: {type(e).__name__}: {e!r}")
-        if attempt < _REP_MAX_RETRIES:
-            logger.info(f"⏳ [Replicate] Waiting {_REP_RETRY_DELAY}s before retry...")
-            await asyncio.sleep(_REP_RETRY_DELAY)
-    logger.error("❌ [Replicate] All attempts failed — moving to HuggingFace.")
-    return None
-
-
-# ── Model 3: Hugging Face FLUX.1-schnell ───────────────────────────────────────
+# ── Model 2: Hugging Face FLUX.1-schnell ───────────────────────────────────────
 
 async def _huggingface_once(prompt: str, ratio: str) -> Optional[bytes]:
     if not HF_API_TOKEN:
         raise RuntimeError("HF_TOKEN not set in environment.")
 
     w, h     = _get_dims(ratio)
-    enriched = _enrich_prompt(prompt, max_chars=4000)
+    enriched = _enrich_prompt(prompt, max_chars=500)
 
     headers = {
         "Authorization": f"Bearer {HF_API_TOKEN}",
@@ -779,186 +410,58 @@ async def _t2i_pollinations(prompt: str, ratio: str) -> Optional[bytes]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PROMPT DIET + VISION GATE (owner ki shikayat, 30 Oct 2026)
-# ──────────────────────────────────────────────────────────────────────────────
-# Hybrid/gadbad images (bed+sofa mixture, disgusting clutter room) ki jad:
-# chhota 4B image model 20+ objects wala 1000+ char prompt nahi sambhal
-# pata — paas ke shabdon ke features ghul jate hain. Ilaaj do hisso me:
-#   1) DIET — image model ko sirf saaf-suthra chhota prompt: pehle ~10
-#      clauses / ~430 chars (subject + hero furniture pehle aate hain,
-#      object-bheed peeche kat jati hai). Mood/variety/tail upar lagte hain.
-#   2) GATE — bani image post se pehle Gemini Vision se check; hybrid ya
-#      pighli shape mile toh diet prompt se EK retry, phir bhi kharab ho
-#      toh pin skip (board par gadbad ja hi nahi payegi).
-# Gate FAIL-OPEN hai: Gemini down/429 ho toh image rukti nahi, post hoti
-# hai (raat ke peak par pipeline band karna ilaaj nahi hai).
-# ══════════════════════════════════════════════════════════════════════════════
-_DIET_MAX_CHARS   = 430
-_DIET_MAX_CLAUSES = 10
-
-
-def _diet_base_prompt(prompt: str, max_chars: int = _DIET_MAX_CHARS,
-                      max_clauses: int = _DIET_MAX_CLAUSES) -> str:
-    """Base prompt ko clause-boundary par trim karo (aadha shabd kabhi nahi
-    katega). Kam se kam 3 clauses hamesha rahenge. Duplicate clauses hate."""
-    clauses = [c.strip() for c in str(prompt or "").split(",") if c.strip()]
-    seen, uniq = set(), []
-    for c in clauses:
-        k = c.lower()
-        if k not in seen:
-            seen.add(k)
-            uniq.append(c)
-    kept, total = [], 0
-    for c in uniq:
-        if len(kept) >= 3 and (len(kept) >= max_clauses or total + len(c) > max_chars):
-            break
-        kept.append(c)
-        total += len(c) + 2
-    return ", ".join(kept)
-
-
-_GATE_PROMPT = """You are a strict quality-control reviewer for photorealistic home-decor Pinterest images.
-Inspect the whole image and reply ONLY with JSON: {"ok": true, "issues": []}
-Set ok=false for clearly visible defects only:
-- hybrid/merged furniture or objects (e.g. bed-sofa hybrid, sofa fused with a bed)
-- melted, warped, impossible, duplicated, or structurally incoherent furniture
-- major geometry/perspective errors or floating objects with no physical support
-- visibly blurry/soft main subject, smeared textures, severe low-detail rendering, or obvious plastic/CGI appearance
-- severe clutter or badly distorted people/faces
-Do NOT reject merely because the image is AI-generated, stylized, warm-lit, or contains ordinary decor.
-When uncertain, return ok=true. Include short issue labels in the issues array."""
-
-_gate_client = None
-
-
-def _get_gate_client():
-    global _gate_client
-    if _gate_client is None:
-        try:
-            from google import genai
-            key = _GEMINI_API_KEY_CFG or os.environ.get("GEMINI_API_KEY", "")
-            if not key:
-                return None
-            _gate_client = genai.Client(api_key=key)
-        except Exception:
-            return None
-    return _gate_client
-
-
-async def _vision_gate(image_bytes: bytes) -> tuple:
-    """(ok, reason). Koi bhi error → (True, 'fail-open') — judge ki outage
-    par pipeline nahi rukegi."""
-    if not VISION_GATE_ENABLED:
-        return True, "gate off"
-    client = _get_gate_client()
-    if client is None:
-        return True, "no Gemini key — gate skipped (fail-open)"
-    model = os.environ.get("VISION_GATE_MODEL") or _GEMINI_MODEL_CFG or "gemini-2.5-flash"
-
-    def _call() -> str:
-        from google.genai import types
-        resp = client.models.generate_content(
-            model=model,
-            contents=[
-                _GATE_PROMPT,
-                types.Part.from_bytes(
-                    data=image_bytes,
-                    mime_type=("image/png" if image_bytes.startswith(b"\\x89PNG\\r\\n\\x1a\\n") else "image/jpeg"),
-                ),
-            ],
-            config=types.GenerateContentConfig(
-                temperature=0.0, max_output_tokens=300,
-                response_mime_type="application/json",
-            ),
-        )
-        return resp.text or ""
-
-    try:
-        raw = await asyncio.to_thread(_call)
-        m = re.search(r"\{.*\}", raw, re.S)
-        data = json.loads(m.group(0)) if m else {}
-        ok = bool(data.get("ok", True))
-        issues = ", ".join(str(i) for i in (data.get("issues") or []))
-        return ok, issues or ("clean" if ok else "defects found")
-    except Exception as e:
-        logger.warning(
-            f"👁️ [VisionGate] check fail hua ({type(e).__name__}: {str(e)[:120]}) "
-            f"— fail-open, image post hogi"
-        )
-        return True, "gate error — fail-open"
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 # PUBLIC API
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optional[str]:
     """
-    High-fidelity Pinterest image pipeline:
-      1. Keep the complete source prompt (no comma-clause prompt diet).
-      2. Use Gemini for a faithful, object-preserving photography rewrite when available.
-      3. Generate through the existing provider cascade.
-      4. Reject obvious hybrid/blur/geometry defects and retry once without truncating.
-      5. Upload accepted original image bytes to ImgBB.
+    Generate a Pinterest image using the T2I pipeline.
+
+    Flow:
+      1. Inject 4 focused variety modifiers (angle, lighting, comp, season)
+      2. Random seed every call for visual freshness
+      3. Try Cloudflare (primary) → HuggingFace (secondary) → Pollinations (last resort)
+      4. Upload result to ImgBB for permanent hosting
+
+    Args:
+        visual_prompt: The detailed visual prompt from prompts master
+        ratio: "9:16" (Pinterest portrait) or "1:1" (square)
+
+    Returns:
+        ImgBB hosted URL or None if all models fail
     """
     w, h = _get_dims(ratio)
-    logger.info("🎨 [Image Pipeline] PIN | ratio=%s (%sx%s)", ratio, w, h)
+    logger.info(f"🎨 [Image Pipeline] PIN | ratio={ratio} ({w}x{h})")
 
-    original = str(visual_prompt or "").strip()
-    if not original:
-        logger.error("❌ [Image Pipeline] Empty visual prompt; refusing to generate.")
-        return None
+    # Inject variety — 4 focused modifiers, lean prompt
+    enriched_prompt, mods = _inject_variety(visual_prompt)
+    logger.info(
+        f"🎲 [Variety Engine v4] "
+        f"angle={mods['angle'][:35]} | "
+        f"light={mods['lighting'][:35]} | "
+        f"comp={mods['comp'][:35]} | "
+        f"season={mods['season'][:35]}"
+    )
+    logger.info(f"📝 [Prompt] {len(enriched_prompt)} chars: {enriched_prompt[:120]}...")
 
-    enriched_prompt, mods = await _inject_variety(original)
-    logger.info("🧠 [PromptVariation] method=%s | source=%s chars | final=%s chars",
-                mods.get("method", "?"), len(original), len(enriched_prompt))
-    logger.info("📝 [Prompt] %s chars: %s...", len(enriched_prompt), enriched_prompt[:180])
+    # PRIMARY: Cloudflare
+    image_bytes = await _t2i_cloudflare(enriched_prompt, ratio)
 
-    image_bytes = await _generate_bytes(enriched_prompt, ratio)
+    # SECONDARY: HuggingFace
+    if not image_bytes:
+        logger.info("🔄 [Image Pipeline] Cloudflare exhausted — trying HuggingFace...")
+        image_bytes = await _t2i_huggingface(enriched_prompt, ratio)
+
+    # LAST RESORT: Pollinations
+    if not image_bytes:
+        logger.info("🔄 [Image Pipeline] HuggingFace exhausted — trying Pollinations...")
+        image_bytes = await _t2i_pollinations(enriched_prompt, ratio)
+
     if not image_bytes:
         logger.error("❌ [Image Pipeline] All models exhausted — no image generated.")
         return None
 
-    ok, reason = await _vision_gate(image_bytes)
-    if not ok:
-        logger.warning("👁️ [VisionGate] REJECT — %s | retrying once with full source prompt", reason)
-        # Do not diet/truncate the source prompt on retry. Use a concise
-        # quality constraint without adding scene objects or contradictory moods.
-        retry_prompt = (
-            original.rstrip(" .") +
-            ". Photorealistic professional interior photography; preserve each object as a distinct, "
-            "physically plausible object; realistic materials and shadows; sharp detailed main scene; "
-            "no blur, no object fusion, no extra furniture."
-        )
-        retry_bytes = await _t2i_cloudflare(retry_prompt, ratio)
-        if not retry_bytes:
-            logger.error("👁️ [VisionGate] Retry generation failed — pin skipped.")
-            return None
-        ok2, reason2 = await _vision_gate(retry_bytes)
-        if not ok2:
-            logger.error("👁️ [VisionGate] Retry rejected — %s | pin skipped.", reason2)
-            return None
-        logger.info("👁️ [VisionGate] Retry PASS — %s", reason2)
-        image_bytes = retry_bytes
-    else:
-        logger.info("👁️ [VisionGate] PASS — %s", reason)
-
     return await _upload_to_imgbb(image_bytes)
-
-
-async def _generate_bytes(prompt: str, ratio: str) -> Optional[bytes]:
-    """Layer cascade: Cloudflare → Replicate → HuggingFace → Pollinations."""
-    image_bytes = await _t2i_cloudflare(prompt, ratio)
-    if not image_bytes:
-        logger.info("🔄 [Image Pipeline] Cloudflare exhausted — trying Replicate...")
-        image_bytes = await _t2i_replicate(prompt, ratio)
-    if not image_bytes:
-        logger.info("🔄 [Image Pipeline] Replicate exhausted — trying HuggingFace...")
-        image_bytes = await _t2i_huggingface(prompt, ratio)
-    if not image_bytes:
-        logger.info("🔄 [Image Pipeline] HuggingFace exhausted — trying Pollinations...")
-        image_bytes = await _t2i_pollinations(prompt, ratio)
-    return image_bytes
 
 
 async def upload_raw_image(image_url: str) -> Optional[str]:
