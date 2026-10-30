@@ -81,14 +81,26 @@ def _analyze_cloudflare(image_path: str, prompt: str) -> dict:
     wale hisse me, Gemini ke saath fallback bankar rahega).
 
     Model: @cf/meta/llama-3.2-11b-vision-instruct (Workers AI catalog ka
-    vision model, free neurons). OpenAI-compatible chat completions par
-    image data-URI ke roop me jati hai — wahi prompt, wahi JSON shape jo
-    Gemini path return karta hai. Creds wahi jo image pipeline pehle se
-    use karti hai (config CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN).
+    vision model, free neurons). Wahi prompt, wahi JSON shape jo Gemini
+    path return karta hai. Creds wahi jo image pipeline pehle se use
+    karti hai (config CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN).
+
+    ⚠️ ENDPOINT FIX (30 Oct 2026, production 403 ke baad): pehle ye
+    OpenAI-compatible `/ai/v1/chat/completions` par jata tha — production
+    me wahan se 403 Forbidden aaya (woh surface alag permission/feature
+    gate ke peeche hai; hamara token wahan authorize nahi hota). Ab ye
+    model ke DOCUMENTED REST endpoint `/ai/run/<model>` par jata hai —
+    wahi base path + Bearer token pattern jo image generation production
+    me roz safal use karta hai (Workers AI Read/Write permission hi
+    chahiye). Image messages ke andar data-URI part ke roop me jati hai
+    (docs: messages me image part, HTTP URL nahi chalega — data URI hi).
+    Error par status + body hamesha log hota hai (raise_for_status body
+    ko chhupa deta tha — ImgBB wali seekh).
     """
     import base64 as _b64
     import re as _re
     import httpx as _httpx
+    import logging as _logging
     from config import CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN
 
     if not CLOUDFLARE_ACCOUNT_ID or not CLOUDFLARE_API_TOKEN:
@@ -100,10 +112,10 @@ def _analyze_cloudflare(image_path: str, prompt: str) -> dict:
     with open(image_path, "rb") as f:
         data_uri = f"data:{mime};base64," + _b64.b64encode(f.read()).decode()
 
+    model = os.environ.get("CF_VISION_MODEL", "@cf/meta/llama-3.2-11b-vision-instruct")
     url = (f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}"
-           f"/ai/v1/chat/completions")
+           f"/ai/run/{model}")
     payload = {
-        "model": os.environ.get("CF_VISION_MODEL", "@cf/meta/llama-3.2-11b-vision-instruct"),
         "messages": [{
             "role": "user",
             "content": [
@@ -116,8 +128,15 @@ def _analyze_cloudflare(image_path: str, prompt: str) -> dict:
     }
     with _httpx.Client(timeout=120) as client:
         resp = client.post(url, headers={"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}"}, json=payload)
+    if resp.status_code != 200:
+        _logging.error(
+            f"❌ [CF Vision] HTTP {resp.status_code} | body: {(resp.text or '')[:400]}"
+        )
         resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"] or ""
+    body = resp.json()
+    if body.get("success") is False:
+        raise RuntimeError(f"Cloudflare vision API error: {str(body.get('errors'))[:300]}")
+    text = (body.get("result") or {}).get("response") or ""
     # Model kabhi ```json fence me lapet deta hai — pehle saaf JSON object nikalo
     m = _re.search(r"\{.*\}", text, _re.S)
     return json.loads(m.group(0) if m else text.strip())
@@ -282,12 +301,15 @@ def request_stop():
     """Dashboard se stop signal bhejo."""
     _stop_flag["value"] = True
     _vision_stats["status"] = "paused"
+    _vision_stats["running"] = False
+    _vision_stats["paused"] = True
     logging.info("🛑 Vision Feeder: stop requested.")
 
 def request_start():
     """Dashboard se start signal bhejo."""
     _stop_flag["value"] = False
     _vision_stats["status"] = "running"
+    _vision_stats["paused"] = False
     logging.info("▶️ Vision Feeder: start requested.")
 
 def is_stop_requested() -> bool:
@@ -301,15 +323,27 @@ _vision_stats = {
     "last_file":        "—",
     "last_time":        "—",
     "status":           "idle",
+    "running":          False,
+    "paused":           False,
 }
 
 def get_vision_stats() -> dict:
-    """Dashboard ke liye live stats return karo."""
+    """Dashboard ke liye live stats return karo.
+
+    running/paused ka SACH yahin se jata hai (30 Oct 2026 fix): pehle API
+    handler main.py ke ek aise flag se 'running' padhta tha jo kabhi True
+    hota hi nahi tha — feeder chal raha hota tha, API 'running: false'
+    bolti thi, aur app ka Stop button hamesha ke liye disabled (dead)
+    pada rehta tha. Ab running feeder khud maintain karta hai aur
+    stop-flag usay hamesha override karta hai."""
     _vision_stats["processed_today"] = _get_today_processed()
     _vision_stats["daily_limit"]     = get_daily_limit()
     _vision_stats["drive_done_total"] = _get_drive_processed_count()
     _vision_stats["drive_pending"]   = count_drive_pending()
     _vision_stats["queue_count"]     = _vision_stats["drive_pending"]
+    _vision_stats["paused"]          = _stop_flag["value"]
+    if _stop_flag["value"]:
+        _vision_stats["running"] = False
     return dict(_vision_stats)
 
 # ── Internal Helpers ───────────────────────────────────────────────────────
@@ -340,12 +374,17 @@ def run_feeder_agent():
 
     if is_stop_requested():
         _vision_stats["status"] = "paused"
+        _vision_stats["running"] = False
         return -2
 
     if drive_service is None:
         logging.warning("⚠️ Vision Feeder disabled — Google credentials not configured.")
         _vision_stats["status"] = "disabled"
+        _vision_stats["running"] = False
         return 0
+
+    # Gates paar — feeder asal me kaam par hai; API ko sach batao
+    _vision_stats["running"] = True
 
     # Daily limit check — limit DYNAMIC hai (Settings sheet, app se set)
     daily_limit = get_daily_limit()
@@ -355,6 +394,7 @@ def run_feeder_agent():
     if done_today >= daily_limit:
         logging.info(f"🛑 Daily limit reached ({daily_limit} images). Sleeping 24 hours.")
         _vision_stats["status"] = "limit_reached"
+        _vision_stats["running"] = False
         return -3  # Caller must sleep 24 hours
 
     remaining = daily_limit - done_today
