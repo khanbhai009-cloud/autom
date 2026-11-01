@@ -1268,6 +1268,19 @@ def _ensure_unique_title(account_key: str, result: dict,
         )
         result["title"] = new_title
         title = new_title
+    # Pin ki THEME strategy me rakho (Prompts_Master row ki theme column se —
+    # header ka case sheet me alag ho sakta hai, is liye teeno variants dekho).
+    # Product Router isi par pin→blog-page mapping chalata hai (owner, 1 Nov
+    # 2026). Trend/hardcoded paths par sheet_row nahi hota → theme nahi
+    # lagegi → woh pins purane behavior par hi rahenge.
+    if sheet_row:
+        theme = ""
+        for _key in ("theme", "THEME", "Theme"):
+            theme = str(sheet_row.get(_key) or "").strip()
+            if theme:
+                break
+        if theme:
+            result["theme"] = theme
     _remember_title(account_key, title)
     return result
 

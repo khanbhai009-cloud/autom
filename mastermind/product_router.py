@@ -171,6 +171,70 @@ TRAFFIC_SIGNALS = {
 }
 
 
+# ── Pin → Blog mapping (owner, 1 Nov 2026) ────────────────────────────────────
+# The 4 funnel blog posts live on the Cozy Canvas site. A pin whose prompt
+# THEME (the Prompts_Master row's theme, carried on strategy["theme"] by
+# node_cmo) matches one of them links to that post — this WINS over the
+# product routing below: a Bedroom pin's job is the blog funnel now, not a
+# kit. Garden and Scenery pins are reach-only — NO link at all, deliberately;
+# that also overrides the Garden Kit the product rules would have picked.
+# Any other theme (Kitchen, Bathroom, Balcony, Cozy nook, Seasonal, ...)
+# falls through to the normal product routing, unchanged.
+BLOG_BASE_URL = "https://pinteresto.vercel.app"
+
+_THEME_BLOG_POSTS = {
+    "bedroom":     "/blog/top-bedroom-products",
+    "living room": "/blog/top-living-room-products",
+    "vanity":      "/blog/top-vanity-products",
+    "desk":        "/blog/cozy-desk-setup-finds",
+}
+
+# Desk themes in Prompts_Master come as "Desk: Cozy / study / workspace"
+# and "Desk: Gaming setup" — the "desk" prefix catches both; the extra
+# stems cover a plain "Gaming"/"Study" style theme name if one appears.
+_DESK_THEME_STEMS = ("cozy desk", "gaming", "study", "workspace")
+
+# Reach-only themes: no destination, ever (see note above).
+_LINKLESS_THEME_STEMS = ("garden", "scenery")
+
+
+def _normalize_theme(theme) -> str:
+    """Sheet theme values vary in case/spacing — compare on a clean form."""
+    return " ".join(str(theme or "").strip().lower().split())
+
+
+def _theme_blog_decision(theme) -> Optional[dict]:
+    """
+    Map a Prompts_Master theme to its blog decision.
+
+    Returns {"kind": "blog", "url": ..., "slug": ...} for a mapped theme,
+    {"kind": "linkless", ...} for a reach-only theme, or None when the
+    theme is unmapped (caller falls through to product routing).
+    """
+    t = _normalize_theme(theme)
+    if not t:
+        return None
+    for stem in _LINKLESS_THEME_STEMS:
+        if t.startswith(stem):
+            return {"kind": "linkless", "url": "", "slug": stem}
+    if t.startswith("desk") or t in _DESK_THEME_STEMS:
+        return {
+            "kind": "blog",
+            "url": BLOG_BASE_URL + _THEME_BLOG_POSTS["desk"],
+            "slug": "desk",
+        }
+    for name, path in _THEME_BLOG_POSTS.items():
+        if name == "desk":
+            continue
+        if t == name or t.startswith(name + " ") or t.startswith(name + "/"):
+            return {
+                "kind": "blog",
+                "url": BLOG_BASE_URL + path,
+                "slug": name.replace(" ", "-"),
+            }
+    return None
+
+
 # ── Product loading: Google Sheets first, built-in fallback second ────────────
 
 _products_cache: dict = {"loaded_at": 0.0, "products": None}
@@ -418,6 +482,39 @@ def route_product(strategy: dict, account_key: str = "account_1") -> dict:
     try:
         if not ROUTER_ENABLED:
             return _result(products, None, 0.0, "disabled", "PRODUCT_ROUTER_ENABLED=false", seed)
+
+        # Pin → Blog mapping (owner, 1 Nov 2026) — runs BEFORE product
+        # scoring and BEFORE the HomeDecor-only scope below, on purpose:
+        # a mapped theme's destination is already decided (the blog post,
+        # or deliberately no link for reach-only themes), and desk/gaming
+        # pins live on account_2, which the kit scope would silence.
+        _blog = _theme_blog_decision(strategy.get("theme", ""))
+        if _blog is not None:
+            _theme_raw = str(strategy.get("theme", ""))
+            if _blog["kind"] == "linkless":
+                logger.info(
+                    "🧭 [Router] Theme '" + _theme_raw + "' is reach-only — pin posts clean (blog mapping)"
+                )
+                return {
+                    "product_id": "",
+                    "destination_url": "",
+                    "product_confidence": 1.0,
+                    "product_method": "blog_theme",
+                    "product_reason": "theme '" + _theme_raw + "' is reach-only — no link by design (blog mapping)",
+                    "product_cta": "",
+                }
+            logger.info(
+                "🧭 [Router] Theme '" + _theme_raw + "' → blog post " + _blog["url"]
+            )
+            return {
+                "product_id": "blog:" + _blog["slug"],
+                "destination_url": _blog["url"],
+                "product_confidence": 1.0,
+                "product_method": "blog_theme",
+                "product_reason": "theme '" + _theme_raw + "' → blog post (blog mapping)",
+                "product_cta": "",
+            }
+
         if account_key != "account_1":
             return _result(products, None, 1.0, "scope", "Products are HomeDecor-only; tech account routes to none", seed)
 

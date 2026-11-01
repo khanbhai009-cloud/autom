@@ -107,5 +107,81 @@ class TestProductRouter(unittest.TestCase):
         self.assertEqual(d["product_id"], "")
 
 
+BLOG = "https://pinteresto.vercel.app"
+
+
+def themed_pin(theme, title="A Pretty Pin", **kw):
+    """A strategy dict carrying a Prompts_Master theme, like node_cmo emits."""
+    strategy = pin(title, **kw)
+    strategy["theme"] = theme
+    return strategy
+
+
+class TestBlogThemeMapping(unittest.TestCase):
+    """Pin → Blog mapping (owner, 1 Nov 2026): theme decides before products."""
+
+    def test_bedroom_theme_to_bedroom_post(self):
+        d = route_product(themed_pin(
+            "Bedroom",
+            title="Blush Pastel Bedroom Styling Ideas",
+            visual_prompt="pastel bedroom interior, cozy corner",
+        ))
+        self.assertEqual(d["destination_url"], BLOG + "/blog/top-bedroom-products")
+        self.assertEqual(d["product_method"], "blog_theme")
+        self.assertEqual(d["product_cta"], "")  # no kit CTA glued onto a blog pin
+
+    def test_living_room_theme_to_living_room_post(self):
+        d = route_product(themed_pin("Living room", title="Cream Living Room Ideas"))
+        self.assertEqual(d["destination_url"], BLOG + "/blog/top-living-room-products")
+
+    def test_vanity_theme_variant_to_vanity_post(self):
+        d = route_product(themed_pin("Vanity / mirror corner", title="Mirror Corner Glow"))
+        self.assertEqual(d["destination_url"], BLOG + "/blog/top-vanity-products")
+
+    def test_gaming_theme_on_tech_account_to_desk_post(self):
+        # Desk mapping beats the HomeDecor-only kit scope: gaming pins live
+        # on account_2 and must still reach the cozy-desk post.
+        d = route_product(themed_pin(
+            "Desk: Gaming setup", title="Pink Gaming Setup Tour",
+        ), account_key="account_2")
+        self.assertEqual(d["destination_url"], BLOG + "/blog/cozy-desk-setup-finds")
+
+    def test_desk_study_theme_to_desk_post(self):
+        d = route_product(themed_pin("Desk: Cozy / study / workspace", title="Cozy Study Desk"))
+        self.assertEqual(d["destination_url"], BLOG + "/blog/cozy-desk-setup-finds")
+
+    def test_garden_theme_posts_clean_despite_garden_kit_fit(self):
+        # Reach-only beats the Garden Kit the product rules would pick.
+        d = route_product(themed_pin(
+            "Garden / cottage scenery",
+            title="I Didn't Know A Morning Cottage Garden Could Look Like This",
+            visual_prompt="cottage garden full of blooms, garden gate, morning light",
+        ))
+        self.assertEqual(d["product_id"], "")
+        self.assertEqual(d["destination_url"], "")
+        self.assertEqual(d["product_method"], "blog_theme")
+
+    def test_scenery_theme_posts_clean(self):
+        d = route_product(themed_pin(
+            "Scenery (no purchasable decor)",
+            title="Mountain Views Forever",
+            visual_prompt="mountain valley landscape, scenic sky",
+        ))
+        self.assertEqual(d["destination_url"], "")
+        self.assertEqual(d["product_method"], "blog_theme")
+
+    def test_unmapped_theme_falls_through_to_product_rules(self):
+        # Kitchen has no blog post — the old behavior must be untouched:
+        # a bedroom-flavoured pin still routes to the Decor Kit.
+        d = route_product(themed_pin(
+            "Kitchen",
+            title="Blush Pastel Bedroom Styling Ideas",
+            description="Cozy bedroom decor with soft glam styling and layered bedding",
+            visual_prompt="pastel bedroom interior, cozy corner, warm lamp light",
+        ))
+        self.assertEqual(d["product_id"], "decor_kit")
+        self.assertEqual(d["destination_url"], DECOR_URL)
+
+
 if __name__ == "__main__":
     unittest.main()
