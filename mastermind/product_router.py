@@ -235,6 +235,35 @@ def _theme_blog_decision(theme) -> Optional[dict]:
     return None
 
 
+# ── Trend pin → Blog mapping (owner, 1 Nov 2026) ──────────────────────────────
+# Trend pins never carry a Prompts_Master theme — trend_cmo stamps the
+# Trend_Prompts row's trend name on strategy["trend"] instead. Christmas
+# trend pins link to the seasonal post on the site; every other trend
+# value (halloween, ...) is unmapped here and falls through to the normal
+# routing, exactly as before this mapping existed.
+_TREND_BLOG_POSTS = {
+    "christmas": {"path": "/blog/christmas-decor-finds", "slug": "christmas-decor-finds"},
+}
+
+
+def _trend_blog_decision(trend) -> Optional[dict]:
+    """
+    Map a Trend_Prompts trend name to its blog decision.
+
+    Returns {"kind": "blog", "url": ..., "slug": ...} for a mapped trend,
+    or None when the trend is unmapped (caller falls through to product
+    routing). Same clean-form compare as themes (_normalize_theme), so
+    "Christmas" and "christmas" are the same trend.
+    """
+    t = _normalize_theme(trend)
+    if not t:
+        return None
+    entry = _TREND_BLOG_POSTS.get(t)
+    if entry is None:
+        return None
+    return {"kind": "blog", "url": BLOG_BASE_URL + entry["path"], "slug": entry["slug"]}
+
+
 # ── Product loading: Google Sheets first, built-in fallback second ────────────
 
 _products_cache: dict = {"loaded_at": 0.0, "products": None}
@@ -512,6 +541,25 @@ def route_product(strategy: dict, account_key: str = "account_1") -> dict:
                 "product_confidence": 1.0,
                 "product_method": "blog_theme",
                 "product_reason": "theme '" + _theme_raw + "' → blog post (blog mapping)",
+                "product_cta": "",
+            }
+
+        # Trend pin → Blog mapping (owner, 1 Nov 2026) — same idea, other
+        # key: a christmas trend pin's destination is already decided (the
+        # seasonal post), so it too runs before the HomeDecor-only scope.
+        # Unmapped trends (halloween, ...) fall through untouched.
+        _trend_blog = _trend_blog_decision(strategy.get("trend", ""))
+        if _trend_blog is not None:
+            _trend_raw = str(strategy.get("trend", ""))
+            logger.info(
+                "🧭 [Router] Trend '" + _trend_raw + "' → blog post " + _trend_blog["url"]
+            )
+            return {
+                "product_id": "blog:" + _trend_blog["slug"],
+                "destination_url": _trend_blog["url"],
+                "product_confidence": 1.0,
+                "product_method": "blog_trend",
+                "product_reason": "trend '" + _trend_raw + "' → blog post (trend mapping)",
                 "product_cta": "",
             }
 

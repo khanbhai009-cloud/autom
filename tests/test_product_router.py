@@ -183,5 +183,66 @@ class TestBlogThemeMapping(unittest.TestCase):
         self.assertEqual(d["destination_url"], DECOR_URL)
 
 
+def trend_pin(trend, title="A Pretty Pin", **kw):
+    """A strategy dict stamped by trend_cmo: strategy["trend"], no theme."""
+    strategy = pin(title, **kw)
+    strategy["trend"] = trend
+    return strategy
+
+
+CHRISTMAS_POST = BLOG + "/blog/christmas-decor-finds"
+
+
+class TestBlogTrendMapping(unittest.TestCase):
+    """Trend pin → Blog mapping (owner, 1 Nov 2026): christmas links, rest unchanged."""
+
+    def test_christmas_trend_to_christmas_post(self):
+        d = route_product(trend_pin(
+            "christmas",
+            title="Magical Christmas Tree Corner With Twinkling Lights",
+            description="christmas xmas decor with a glowing tree",
+            visual_prompt="christmas tree with ornaments and fairy lights",
+            board_name="Christmas",
+        ))
+        self.assertEqual(d["destination_url"], CHRISTMAS_POST)
+        self.assertEqual(d["product_id"], "blog:christmas-decor-finds")
+        self.assertEqual(d["product_method"], "blog_trend")
+        self.assertEqual(d["product_confidence"], 1.0)
+        self.assertEqual(d["product_cta"], "")  # no kit CTA glued onto a blog pin
+
+    def test_christmas_trend_case_and_spacing_insensitive(self):
+        d = route_product(trend_pin(" Christmas ", title="Twinkling Tree Corner"))
+        self.assertEqual(d["destination_url"], CHRISTMAS_POST)
+        self.assertEqual(d["product_method"], "blog_trend")
+
+    def test_halloween_trend_behaves_exactly_as_before(self):
+        # Halloween has no trend mapping: its decision must be identical
+        # to the same pin carrying no trend stamp at all (posts clean —
+        # the traffic signals treat halloween as reach content).
+        stamped = trend_pin(
+            "halloween",
+            title="Spooky Halloween Porch With Glowing Pumpkins",
+            description="halloween decor with carved pumpkins and candles",
+            visual_prompt="halloween porch, pumpkins and candles",
+            board_name="Halloween",
+        )
+        plain = dict(stamped)
+        del plain["trend"]
+        self.assertEqual(route_product(stamped), route_product(plain))
+        d = route_product(stamped)
+        self.assertEqual(d["product_id"], "")
+        self.assertEqual(d["destination_url"], "")
+        self.assertNotEqual(d["product_method"], "blog_trend")
+
+    def test_regular_themed_pin_unaffected_by_trend_mapping(self):
+        d = route_product(themed_pin(
+            "Bedroom",
+            title="Blush Pastel Bedroom Styling Ideas",
+            visual_prompt="pastel bedroom interior, cozy corner",
+        ))
+        self.assertEqual(d["destination_url"], BLOG + "/blog/top-bedroom-products")
+        self.assertEqual(d["product_method"], "blog_theme")
+
+
 if __name__ == "__main__":
     unittest.main()
