@@ -76,6 +76,7 @@ GEMINI_IMAGE_MODEL      = os.getenv(
 # product can be swapped without a code change.
 PRODUCT_GARDEN_URL = os.getenv("PRODUCT_GARDEN_URL", "https://cozycanvasstudio.gumroad.com/l/nmkawd")
 PRODUCT_DECOR_URL  = os.getenv("PRODUCT_DECOR_URL",  "https://cozycanvasstudio.gumroad.com/l/ictsf")
+PRODUCT_PROMPT_PACK_URL = os.getenv("PRODUCT_PROMPT_PACK_URL", "https://cozycanvasstudio.gumroad.com/l/igopxj")
 # Mastermind "thinking" fallback: Groq's reasoning model (free tier
 # 30 RPM / 1,000 RPD per official rate-limit docs, Oct 2026). CMO chain:
 # Gemini -> ye thinking model -> hardcoded fallback. (Qwen CMO me nahi
