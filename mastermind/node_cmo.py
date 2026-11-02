@@ -1063,25 +1063,34 @@ CREATIVE DIRECTION
    Window Box" type ke keyword-salad titles BANNED hain. Is channel ke
    sabse bade pins hamesha insaan-waale ehsaas wale titles par chale hain.)
    - Title: ONE natural line a real person would tap Save on — the FEELING
-     of THIS exact image in plain, warm words. Rules:
-     * 5-11 words. A small emotional statement about the scene: wonder,
-       comfort, softness, longing. First person is WELCOME — "I didn't know
-       a morning could look like this" is this channel's #1 pin ever.
-     * The scene's real nouns appear ONCE, naturally (cottage, cherry
-       blossoms, window box, balcony) — that is all the search value a
-       title needs. No stuffing, no keyword lists, ever.
-     * BANNED robot shapes (never use, in any variation):
-       - "<Label> Ideas:" or ANY "<keywords>:" colon prefix
-       - "Inspiration for Your Home", "You'll Want to Save", "Best X Ideas"
-       - keyword chains joined with "&" or stacked commas
-       - Title Case On Every Single Word, like a product listing
-     * Vary the shape every pin: a wonder statement, a soft first-person
-       line, a sensory fragment, a "the kind of ... that ..." line.
+     of THIS exact image in plain, warm words. TITLE HUMANIZER (2 Nov 2026
+     — titles had collapsed into 2 rut frames; owner: "robot jesa lag
+     raha hai"):
+     * 5-11 words. Anchor it in THIS scene: at least one concrete thing
+       from the image itself (the room, an object, the light, a colour,
+       the hour) must live inside the title. Swap test: if the title
+       would still fit a DIFFERENT image unchanged, it is wrong — rewrite.
+     * ROTATE the shape — use the one that feels freshest for this pin:
+       a scene-first picture line, a time-of-day line, a sensory
+       fragment, a quiet observation, a small wish, an outside/inside
+       contrast, a soft first-person line.
+     * RETIRED as defaults (fine once in a rare while, but as a habit
+       they are the lazy robot choice — avoid both):
+       - "The kind of <thing> that makes you ..."
+       - "I didn't know a <thing> could feel this magical/serene/..."
+       - the word "magical" as a crutch ending
+     * BANNED (never, in any variation): "I don't know", "this kind of",
+       "you won't believe", "mind-blowing", "game-changer",
+       "<Label> Ideas:" or ANY "<keywords>:" colon prefix,
+       "Inspiration for Your Home", "You'll Want to Save", "Best X Ideas",
+       keyword chains joined with "&" or stacked commas,
+       Title Case On Every Single Word, like a product listing.
      Good shapes (adapt to THIS image, do not copy):
        "A fairytale cottage wrapped in cherry blossoms"
-       "I didn't know a morning could look like this"
-       "The kind of little balcony that makes you slow down"
+       "Sunlight pooling on a bed that is hard to leave"
+       "Rain against the glass and nowhere else to be"
        "Some corners just feel like a deep breath"
+       "Golden hour, a swing, and a garden gone soft"
    - Description: 2-3 sentences, the way a person describes a place they
      love: sensory pull (one texture, one light quality, one feeling).
      The scene's real words belong naturally — never stuff keywords.
@@ -1161,6 +1170,40 @@ _ROBOT_TITLE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# TITLE FAMILY guard (2 Nov 2026 — owner: "robot jesa lag rha hai, sab ke
+# 'I don't know / this kind of' type titles ban rahe hain"). Asli bimari
+# exact-repeat nahi thi: LLM do hi ghise hue frames baar-baar slot-fill
+# kar raha tha — "The kind of X that ..." (recent 35 titles me ~17) aur
+# "I didn't know a X could feel this magical" (~8). Exact-title history
+# unhe pakad hi nahi sakti, kyunki har baar noun badal jata hai. Is liye
+# ab title ki FAMILY (opener pattern) bhi history se match hoti hai: koi
+# rut family pichhle kuch titles me aayi ho to usi family ka naya title
+# guard se pass nahi hoga — scene-based human title se badal jayega.
+_TITLE_FAMILIES = (
+    ("kind_of",    re.compile(r"^the kind of\b", re.IGNORECASE)),
+    ("didnt_know", re.compile(r"^i didn'?t know\b", re.IGNORECASE)),
+    ("feel_this",  re.compile(r"\bfeel this (magical|serene|gentle|warm|golden|cozy)\b", re.IGNORECASE)),
+)
+_TITLE_FAMILY_WINDOW = 6   # itne pichhle titles me rut family mili -> block
+
+
+def _title_family(title: str) -> str:
+    """Title kis rut-family ka hai ('kind_of'/'didnt_know'/'feel_this'/'')."""
+    t = str(title or "").strip()
+    for name, rx in _TITLE_FAMILIES:
+        if rx.search(t):
+            return name
+    return ""
+
+
+def _family_in_recent(account_key: str, family: str,
+                      window: int = _TITLE_FAMILY_WINDOW) -> bool:
+    """Is account ke pichhle `window` titles me ye family aayi hai kya?"""
+    if not family:
+        return False
+    recent = _load_title_history().get(account_key, [])[-window:]
+    return any(_title_family(t) == family for t in recent)
+
 
 def _humanize_keyword(raw: str) -> str:
     """'CozyBedroom' / 'cozy_bedroom' / 'cozy bedroom' → 'Cozy Bedroom'."""
@@ -1172,7 +1215,8 @@ def _humanize_keyword(raw: str) -> str:
                     for i, w in enumerate(words))
 
 
-def _human_title(label: str, tags: list, niche: str = "", seed: int = 0) -> str:
+def _human_title(label: str, tags: list, niche: str = "", seed: int = 0,
+                 avoid: set = None) -> str:
     """
     Deterministic HUMAN-FEEL title, pin ke OWN row data se (31 Oct 2026 —
     purane _seo_title ke robot templates owner ko pasand nahi aaye).
@@ -1193,20 +1237,34 @@ def _human_title(label: str, tags: list, niche: str = "", seed: int = 0) -> str:
     if niche_kw and niche_kw.lower() not in label.lower() and niche_kw not in kws:
         kws.append(niche_kw)
     kw1 = kws[0] if kws else ""
+    # NOTE (2 Nov 2026): purana "The kind of {label} that makes you slow
+    # down" template yahan se HATA diya — wahi frame LLM ke saath milkar
+    # har dusra title ek jaisa bana raha tha. Templates ab jaanboojh kar
+    # alag-alag shapes ke hain, aur `avoid` me aayi families skip hoti
+    # hain taaki badla hua title bhi usi rut me na gire.
     templates = [
         f"{art} {label_lc} I'd never want to leave",
         f"This {label_lc} feels straight out of a storybook",
-        f"The kind of {label_lc} that makes you slow down",
         f"Falling a little in love with this {label_lc}",
         f"{label} — and somehow the whole day feels softer",
         f"POV: you found the {label_lc} from your dreams",
         f"Some places just feel like home — this {label_lc} is one of them",
+        f"The light in this {label_lc} could fix a whole mood",
+        f"If peace had an address, it would be this {label_lc}",
+        f"One {label_lc} worth slowing down for",
     ]
     if kw1:
         templates.append(f"{label} wrapped in {kw1.lower()}")
         templates.append(f"{art} {label_lc} with {kw1.lower()} doing all the talking")
-    title = templates[abs(seed) % len(templates)]
-    title = re.sub(r"\b(\w+) \1\b", r"\1", title, flags=re.IGNORECASE)  # 'Decor Decor' → 'Decor'
+    avoid = avoid or set()
+    title = ""
+    for k in range(len(templates)):
+        cand = templates[(abs(seed) + k) % len(templates)]
+        cand = re.sub(r"\b(\w+) \1\b", r"\1", cand, flags=re.IGNORECASE)  # 'Decor Decor' → 'Decor'
+        if _title_family(cand) in avoid and k < len(templates) - 1:
+            continue   # rut family se bacho — agla shape try karo
+        title = cand
+        break
     if len(title) > 95:  # Pinterest title limit ~100 chars
         title = title[:95].rsplit(" ", 1)[0]
     return title
@@ -1245,13 +1303,16 @@ def _ensure_unique_title(account_key: str, result: dict,
     """
     Guard har result par: title ROBOT-pattern wala hai (SEO template /
     keyword stuffing) YA pichhle {_TITLE_HISTORY_KEEP} titles me repeat
-    hai → usi pin ke row data se human-feel title bana kar badal do.
-    Final title history me yaad rakho.
+    hai YA uski opener-FAMILY (kind_of / didnt_know / feel_this) pichhle
+    kuch titles me ghis chuki hai → usi pin ke row data se human-feel
+    title bana kar badal do. Final title history me yaad rakho.
     """
     title = str(result.get("title", "")).strip()
     banned = bool(_ROBOT_TITLE_RE.search(title))
     repeat = bool(title) and _title_seen(account_key, title)
-    if banned or repeat or not title:
+    family = _title_family(title)
+    rut = bool(family) and _family_in_recent(account_key, family)
+    if banned or repeat or rut or not title:
         if sheet_row:
             label = str(sheet_row.get("label", "")).strip()
             raw_tags = [t.strip() for t in str(sheet_row.get("tags", "")).split(",") if t.strip()]
@@ -1261,9 +1322,17 @@ def _ensure_unique_title(account_key: str, result: dict,
             raw_tags = result.get("tags", []) or []
             row_niche = niche or str(result.get("niche", ""))
         seed = zlib.crc32(f"{account_key}|{label}|{title}".encode("utf-8"))
-        new_title = _human_title(label, raw_tags, row_niche, seed=seed)
+        # Badla hua title bhi pichhle titles wali rut families se alag ho —
+        # warna guard ek ghisi hui shape ko dusri ghisi hui shape se badalta.
+        avoid = {_title_family(t) for t in
+                 _load_title_history().get(account_key, [])[-_TITLE_FAMILY_WINDOW:]}
+        avoid.discard("")
+        if family:
+            avoid.add(family)
+        new_title = _human_title(label, raw_tags, row_niche, seed=seed, avoid=avoid)
+        reason = "ROBOT" if banned else "RUT-FAMILY" if rut else "REPEAT"
         logger.warning(
-            f"   [{account_key}] Title guard: {'ROBOT' if banned else 'REPEAT'} "
+            f"   [{account_key}] Title guard: {reason} "
             f"title badla → '{new_title}' (purana: '{title[:50]}')"
         )
         result["title"] = new_title
