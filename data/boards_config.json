@@ -4,27 +4,27 @@
       {
         "board_id": "909445787192886518",
         "name": "Cozy Bedroom & Indoor Vibes",
-        "description": "Bedrooms, reading nooks, fairy lights, candles, blankets, duvets, window seats, vanity setups, bohemian indoor spaces, hygge aesthetic, cozy desk corners, string lights, cozy corners, pillows, knit blankets, warm ambient lighting indoors"
+        "description": "ONLY indoor cozy private corners: bedrooms, beds, reading nooks, window seats, vanity/dressing corners inside a room, a small cozy desk corner inside a bedroom, candles, fairy/string lights INDOORS, blankets, pillows, warm indoor glow, hygge corners. NOT living rooms, bathrooms or kitchens (Board 5 - Home Decor & Aesthetic Interiors), NOT anything outdoors."
       },
       {
         "board_id": "909445787192891736",
         "name": "Cottage & Garden Aesthetic",
-        "description": "English cottages, floral gardens, garden gates, pergolas, garden benches, climbing roses, cottage exteriors, garden pathways, flower beds, whimsical garden scenes, vintage bicycles with flowers, garden swings, floral window boxes"
+        "description": "OUTDOOR garden world attached to a home: cottage exteriors WITH flower gardens, English gardens, garden gates, pergolas, climbing roses, garden paths, flower beds, window flower boxes, garden benches and swings among flowers, bicycles decorated with flowers parked in a garden. NOT balcony/porch/patio seating areas (Board 4 - Outdoor Living & Balcony), NOT open nature without a house or garden (Board 3 - Nature, Travel & Scenic Views), NOT bare house facades (Board 5)."
       },
       {
         "board_id": "909445787192891741",
         "name": "Nature, Travel & Scenic Views",
-        "description": "Anime landscapes, Ghibli-style nature scenes, mountain views, scenic train journeys, Japanese streets, meadows, forests, bicycle rides through nature, picnic in countryside, cherry blossom scenery, waterfall views, scenic valleys"
+        "description": "Open scenery with NO house interior and NO cottage garden: anime and Ghibli-style landscapes, mountains, valleys, meadows, forests, waterfalls, lakes, scenic train journeys, Japanese and countryside streets, picnics in open countryside, bicycle rides through nature, cherry-blossom scenery. NOT gardens attached to cottages (Board 2), NOT balconies or porches (Board 4), NOT anything indoors."
       },
       {
         "board_id": "909445787192891742",
         "name": "Outdoor Living & Balcony",
-        "description": "Balcony gardens, porch setups, outdoor seating areas, garden tea settings, outdoor dining, Mediterranean patios, spring porches with flowers, twilight balconies, cozy balcony retreats, rattan furniture outdoors, string lights on balcony"
+        "description": "Outdoor SITTING/LIVING spaces attached to a home: balconies, porches, patios, terraces, balcony gardens in pots, outdoor seating areas, outdoor dining and tea settings on a porch/balcony/patio, rattan outdoor furniture, twilight balcony retreats. NOT flower gardens or cottage grounds (Board 2 - Cottage & Garden Aesthetic), NOT open countryside or landscapes (Board 3)."
       },
       {
         "board_id": "909445787192891737",
         "name": "Home Decor & Aesthetic Interiors",
-        "description": "Living rooms, entryways, wall decor, bathroom with plants, bookshelves, home exteriors, modern house facades, indoor jungle rooms, minimalist interiors, aesthetic home corners, mirrors, floating shelves, home styling"
+        "description": "Indoor home interiors EXCEPT bedrooms: living rooms, bathrooms (spa bathrooms, plants in bathrooms, bathtubs), kitchens, entryways, bookshelves, wall decor, mirrors, floating shelves, indoor plant/jungle rooms, minimalist interiors, and plain house facades/exteriors WITHOUT gardens. NOT bedrooms, reading nooks or vanity corners (Board 1 - Cozy Bedroom & Indoor Vibes), NOT cottage exteriors with gardens (Board 2)."
       }
     ]
   },
