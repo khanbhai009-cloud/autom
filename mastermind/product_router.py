@@ -49,6 +49,7 @@ Env knobs (all optional):
   PRODUCT_ROUTER_UTM       append utm params (default "false" — clean URLs,
                            exactly as the verified hand-linked pins)
   PRODUCT_GARDEN_URL / PRODUCT_DECOR_URL   fallback-kit URL overrides
+  PRODUCT_PROMPT_PACK_URL                  prompt-pack URL (garden/scenery themes)
 """
 
 import hashlib
@@ -64,13 +65,16 @@ logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 try:
-    from config import PRODUCT_DECOR_URL, PRODUCT_GARDEN_URL
+    from config import PRODUCT_DECOR_URL, PRODUCT_GARDEN_URL, PRODUCT_PROMPT_PACK_URL
 except Exception:  # config not updated yet / import context — use live defaults
     PRODUCT_GARDEN_URL = os.getenv(
         "PRODUCT_GARDEN_URL", "https://cozycanvasstudio.gumroad.com/l/nmkawd"
     )
     PRODUCT_DECOR_URL = os.getenv(
         "PRODUCT_DECOR_URL", "https://cozycanvasstudio.gumroad.com/l/ictsf"
+    )
+    PRODUCT_PROMPT_PACK_URL = os.getenv(
+        "PRODUCT_PROMPT_PACK_URL", "https://cozycanvasstudio.gumroad.com/l/igopxj"
     )
 
 # Saare switches config.py ke ek section me hain ("SAARE ON/OFF SWITCHES")
@@ -176,10 +180,15 @@ TRAFFIC_SIGNALS = {
 # THEME (the Prompts_Master row's theme, carried on strategy["theme"] by
 # node_cmo) matches one of them links to that post — this WINS over the
 # product routing below: a Bedroom pin's job is the blog funnel now, not a
-# kit. Garden and Scenery pins are reach-only — NO link at all, deliberately;
-# that also overrides the Garden Kit the product rules would have picked.
-# Any other theme (Kitchen, Bathroom, Balcony, Cozy nook, Seasonal, ...)
-# falls through to the normal product routing, unchanged.
+# kit. Any other theme (Kitchen, Bathroom, Balcony, Cozy nook, Seasonal,
+# ...) falls through to the normal product routing, unchanged.
+#
+# Garden/Scenery → Prompt Pack (owner, 2 Nov 2026): Garden and Scenery
+# themes used to post linkless (reach-only). The owner then listed his
+# prompt library on Gumroad (350 prompts — the exact verified count,
+# never round it up) and ordered these pins to carry the pack instead:
+# "khaali jaane se achha hai kuch rhe." This still overrides the Garden
+# Kit the product rules would have picked for a garden-flavoured pin.
 BLOG_BASE_URL = "https://pinteresto.vercel.app"
 
 _THEME_BLOG_POSTS = {
@@ -194,8 +203,20 @@ _THEME_BLOG_POSTS = {
 # stems cover a plain "Gaming"/"Study" style theme name if one appears.
 _DESK_THEME_STEMS = ("cozy desk", "gaming", "study", "workspace")
 
-# Reach-only themes: no destination, ever (see note above).
-_LINKLESS_THEME_STEMS = ("garden", "scenery")
+# Garden/scenery themes carry the Prompt Pack (see note above). These
+# stems match the real Prompts_Master theme values: "Garden / cottage
+# scenery" (49 rows) and "Scenery (no purchasable decor)" (20 rows).
+_PROMPT_PACK_THEME_STEMS = ("garden", "scenery")
+
+# The pack: 350 copy-paste prompts (303 home decor & garden + 47 tech &
+# workspace) — the same library these pins' images are generated from.
+# CTAs follow the kit pattern: honest copy, the pin's destination link is
+# the "link below" (agent.py appends the CTA to the description).
+PROMPT_PACK_CTAS = [
+    "Want to create this image yourself? It started as one prompt from my library — get all 350 ready-to-use prompts for realistic home decor & garden images, link below 🌱",
+    "This pin began as a single prompt. My full library has 350 ready-to-use prompts for realistic home decor & garden images — grab the pack, link below ✨",
+    "Love this look? Create your own version — 350 ready-to-use prompts for realistic home decor & garden images, link below 🌿",
+]
 
 
 def _normalize_theme(theme) -> str:
@@ -208,15 +229,15 @@ def _theme_blog_decision(theme) -> Optional[dict]:
     Map a Prompts_Master theme to its blog decision.
 
     Returns {"kind": "blog", "url": ..., "slug": ...} for a mapped theme,
-    {"kind": "linkless", ...} for a reach-only theme, or None when the
-    theme is unmapped (caller falls through to product routing).
+    {"kind": "prompt_pack", ...} for a garden/scenery theme, or None when
+    the theme is unmapped (caller falls through to product routing).
     """
     t = _normalize_theme(theme)
     if not t:
         return None
-    for stem in _LINKLESS_THEME_STEMS:
+    for stem in _PROMPT_PACK_THEME_STEMS:
         if t.startswith(stem):
-            return {"kind": "linkless", "url": "", "slug": stem}
+            return {"kind": "prompt_pack", "url": PRODUCT_PROMPT_PACK_URL, "slug": stem}
     if t.startswith("desk") or t in _DESK_THEME_STEMS:
         return {
             "kind": "blog",
@@ -515,22 +536,33 @@ def route_product(strategy: dict, account_key: str = "account_1") -> dict:
         # Pin → Blog mapping (owner, 1 Nov 2026) — runs BEFORE product
         # scoring and BEFORE the HomeDecor-only scope below, on purpose:
         # a mapped theme's destination is already decided (the blog post,
-        # or deliberately no link for reach-only themes), and desk/gaming
+        # or the prompt pack for garden/scenery themes), and desk/gaming
         # pins live on account_2, which the kit scope would silence.
         _blog = _theme_blog_decision(strategy.get("theme", ""))
         if _blog is not None:
             _theme_raw = str(strategy.get("theme", ""))
-            if _blog["kind"] == "linkless":
+            if _blog["kind"] == "prompt_pack":
+                _pack_url = _blog["url"]
+                if ROUTER_UTM_ENABLED:
+                    _sep = "&" if "?" in _pack_url else "?"
+                    _pack_url = (
+                        _pack_url + _sep
+                        + "utm_source=pinterest&utm_medium=pin&utm_campaign=prompt_pack"
+                    )
+                _pack_cta = PROMPT_PACK_CTAS[
+                    int(hashlib.md5(seed.encode("utf-8")).hexdigest(), 16)
+                    % len(PROMPT_PACK_CTAS)
+                ]
                 logger.info(
-                    "🧭 [Router] Theme '" + _theme_raw + "' is reach-only — pin posts clean (blog mapping)"
+                    "🧭 [Router] Theme '" + _theme_raw + "' → prompt pack " + _pack_url
                 )
                 return {
-                    "product_id": "",
-                    "destination_url": "",
+                    "product_id": "prompt_pack",
+                    "destination_url": _pack_url,
                     "product_confidence": 1.0,
-                    "product_method": "blog_theme",
-                    "product_reason": "theme '" + _theme_raw + "' is reach-only — no link by design (blog mapping)",
-                    "product_cta": "",
+                    "product_method": "prompt_pack",
+                    "product_reason": "theme '" + _theme_raw + "' → prompt pack (theme mapping)",
+                    "product_cta": _pack_cta,
                 }
             logger.info(
                 "🧭 [Router] Theme '" + _theme_raw + "' → blog post " + _blog["url"]
