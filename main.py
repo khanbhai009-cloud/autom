@@ -165,9 +165,14 @@ async def mastermind_scheduled_job(trigger: str):
 # Scheduler timezone: America/New_York (pins US audience ke liye hain).
 # IST sirf DISPLAY ke liye hai (app/logs) — scheduling hamesha ek hi
 # timezone par hoti hai, kabhi dono par nahi.
-# Pins   : 20 total per day — 10 per account
-# Gap    : random 60–72 min between consecutive pins (interleaved A1/A2)
-# Layout : slots interleaved  →  A1, A2, A1, A2 ... (20 slots total)
+# Pins   : 11 posted per day — A1 = 10, A2 = 1 (owner ka faisla, 3 Nov 2026:
+#          Tech library sirf 49 prompts hai, 10/day par har prompt ~5 din me
+#          repeat ho raha tha; 1/day par chakkar ~49 din ka hoga. A2 ki
+#          library 100+ prompts ho jaye toh A2_DAILY badha dena.)
+# Gap    : random 60–72 min between consecutive slots (train of 20 slots)
+# Layout : 20-slot train interleaved — even slots A1, ONE odd slot (index 9,
+#          din ke beech me) A2 ka, baaki odd slots khaali rehte hain taaki
+#          A1 ki cadence aur poore din ka failaav pehle jaisa hi rahe.
 # Split  : 100% VIRAL_PIN
 # Plan   : Sheets (Schedule_State) me persist — restart par resume.
 #
@@ -183,7 +188,8 @@ def _random_daily_split() -> list:
 
 def schedule_daily_pins(force: bool = False):
     """
-    Register today's 20 pins (10 per account, 60-72 min gaps, interleaved).
+    Register today's 11 pins (A1 x10 + A2 x1) on the 20-slot timing train
+    (60-72 min gaps; A2 takes only slot index 9 — upar wala note dekho).
 
     Plan PERSISTENCE (30 Oct 2026): the day's slot plan is saved to Sheets
     (Schedule_State tab). A restart/deploy RESUMES the same plan — slots
@@ -203,6 +209,8 @@ def schedule_daily_pins(force: bool = False):
     TOTAL_PINS  = 20
     MIN_GAP     = 60   # minutes between consecutive pins (any account)
     MAX_GAP     = 72   # minutes
+    A2_DAILY    = 1    # Tech account: roz sirf 1 pin (upar wala note dekho)
+    A2_SLOT     = 9    # 20-slot train me A2 ka ekmatra slot (odd, mid-day)
 
     today = now.strftime("%Y-%m-%d")
     plan  = None if force else load_daily_plan()
@@ -222,7 +230,7 @@ def schedule_daily_pins(force: bool = False):
 
     # ── Random pin-type split for each account ─────────────────────────────────
     a1_plan = _random_daily_split()   # 10x VIRAL_PIN
-    a2_plan = _random_daily_split()   # 10x VIRAL_PIN
+    a2_plan = _random_daily_split()[:A2_DAILY]   # A2: sirf 1x VIRAL_PIN
 
     # Slots are offsets from the PLAN's creation moment — on a resume that
     # moment is in the past, so anchor to it (na ki restart ke 'now' par).
@@ -249,7 +257,7 @@ def schedule_daily_pins(force: bool = False):
             skipped_past += 1
             if i % 2 == 0:
                 a1_idx += 1
-            else:
+            elif i == A2_SLOT:
                 a2_idx += 1
             continue
 
@@ -264,7 +272,7 @@ def schedule_daily_pins(force: bool = False):
             a1_idx   += 1
             scheduled += 1
 
-        elif i % 2 == 1 and a2_idx < 10:       # odd slot  → Account 2
+        elif i == A2_SLOT and a2_idx < A2_DAILY:   # A2 ka ekmatra slot
             pin_type = a2_plan[a2_idx]
             scheduler.add_job(
                 mastermind_scheduled_job, "date", run_date=run_time,
@@ -276,10 +284,10 @@ def schedule_daily_pins(force: bool = False):
             scheduled += 1
 
     logger.info(
-        f"✅ Daily schedule ready — {scheduled}/20 pins registered"
+        f"✅ Daily schedule ready — {scheduled}/11 pins registered"
         f"{' (RESUMED saved plan)' if resumed else ' (new plan)'}\n"
         f"   Beet gaye slots skip: {skipped_past} | Acc1 next idx: {a1_idx} | Acc2 next idx: {a2_idx}\n"
-        f"   Gap between pins: {MIN_GAP}–{MAX_GAP} min random (interleaved A1/A2)"
+        f"   Gap between slots: {MIN_GAP}–{MAX_GAP} min random (A1 x10 + A2 x1)"
     )
     # Reset daily counter
     state["posted_today"] = 0
@@ -322,7 +330,7 @@ async def lifespan(app: FastAPI):
     schedule_daily_pins()
     scheduler.start()
     asyncio.create_task(pin_watchdog())
-    logger.info("✅ Smart Scheduler Active — 20 pins/day (10 per account) | scheduler tz America/New_York (US audience) | Gap: 60–72 min between pins | Plan Sheets me saved — restart par resume hota hai")
+    logger.info("✅ Smart Scheduler Active — 11 pins/day (A1 x10 + A2 x1) | scheduler tz America/New_York (US audience) | Gap: 60–72 min between slots | Plan Sheets me saved — restart par resume hota hai")
 
     # ── Vision Feeder: Google Drive loop ─────────────────────────────────────
     async def vision_feeder_loop():
