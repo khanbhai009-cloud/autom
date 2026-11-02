@@ -126,8 +126,19 @@ def _analyze_cloudflare(image_path: str, prompt: str) -> dict:
         "temperature": 0.7,
         "max_tokens": 2000,
     }
+    headers = {"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}"}
     with _httpx.Client(timeout=120) as client:
-        resp = client.post(url, headers={"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}"}, json=payload)
+        resp = client.post(url, headers=headers, json=payload)
+        if resp.status_code == 403 and "Model Agreement" in (resp.text or ""):
+            # ONE-TIME Meta license acceptance (production error, 3 Nov 2026):
+            # ye model pehli baar chalane se pehle CF account se sirf ek baar
+            # 'agree' prompt mangta hai — agree bhej kar wahi request dobara.
+            _logging.warning(
+                "⚠️ [CF Vision] Model Agreement pending tha — "
+                "'agree' bhej raha hu (one-time), fir retry"
+            )
+            client.post(url, headers=headers, json={"prompt": "agree"})
+            resp = client.post(url, headers=headers, json=payload)
     if resp.status_code != 200:
         _logging.error(
             f"❌ [CF Vision] HTTP {resp.status_code} | body: {(resp.text or '')[:400]}"
