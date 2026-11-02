@@ -10,6 +10,10 @@ needs no API keys:
 Cases mirror the pins that were hand-linked on 28–29 Oct 2026 (the manual
 run is the router's ground truth): garden pins -> Garden Kit, interior
 pins -> Decor Kit, scenery/Christmas/tech pins -> clean (no destination).
+
+Update (owner, 2 Nov 2026): pins carrying a Garden/Scenery THEME now route
+to the prompt pack (they posted linkless before); unthemed scenery pins
+still post clean via the product rules, unchanged.
 """
 
 import os
@@ -24,6 +28,7 @@ from mastermind.product_router import route_product  # noqa: E402
 
 GARDEN_URL = "https://cozycanvasstudio.gumroad.com/l/nmkawd"
 DECOR_URL = "https://cozycanvasstudio.gumroad.com/l/ictsf"
+PACK_URL = "https://cozycanvasstudio.gumroad.com/l/igopxj"
 
 
 def pin(title, description="", visual_prompt="", board_name="", niche="", tags=None):
@@ -150,25 +155,32 @@ class TestBlogThemeMapping(unittest.TestCase):
         d = route_product(themed_pin("Desk: Cozy / study / workspace", title="Cozy Study Desk"))
         self.assertEqual(d["destination_url"], BLOG + "/blog/cozy-desk-setup-finds")
 
-    def test_garden_theme_posts_clean_despite_garden_kit_fit(self):
-        # Reach-only beats the Garden Kit the product rules would pick.
+    def test_garden_theme_to_prompt_pack_despite_garden_kit_fit(self):
+        # Owner, 2 Nov 2026: garden/scenery pins carry the prompt pack —
+        # this still beats the Garden Kit the product rules would pick
+        # (before 2 Nov these themes posted linkless).
         d = route_product(themed_pin(
             "Garden / cottage scenery",
             title="I Didn't Know A Morning Cottage Garden Could Look Like This",
             visual_prompt="cottage garden full of blooms, garden gate, morning light",
         ))
-        self.assertEqual(d["product_id"], "")
-        self.assertEqual(d["destination_url"], "")
-        self.assertEqual(d["product_method"], "blog_theme")
+        self.assertEqual(d["product_id"], "prompt_pack")
+        self.assertEqual(d["destination_url"], PACK_URL)
+        self.assertEqual(d["product_method"], "prompt_pack")
+        # Honest copy only: the pack has exactly 350 prompts, never 400+.
+        self.assertIn("350", d["product_cta"])
+        self.assertNotIn("400", d["product_cta"])
 
-    def test_scenery_theme_posts_clean(self):
+    def test_scenery_theme_to_prompt_pack(self):
         d = route_product(themed_pin(
             "Scenery (no purchasable decor)",
             title="Mountain Views Forever",
             visual_prompt="mountain valley landscape, scenic sky",
         ))
-        self.assertEqual(d["destination_url"], "")
-        self.assertEqual(d["product_method"], "blog_theme")
+        self.assertEqual(d["product_id"], "prompt_pack")
+        self.assertEqual(d["destination_url"], PACK_URL)
+        self.assertEqual(d["product_method"], "prompt_pack")
+        self.assertTrue(d["product_cta"])
 
     def test_unmapped_theme_falls_through_to_product_rules(self):
         # Kitchen has no blog post — the old behavior must be untouched:
