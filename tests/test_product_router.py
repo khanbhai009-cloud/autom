@@ -203,6 +203,7 @@ def trend_pin(trend, title="A Pretty Pin", **kw):
 
 
 CHRISTMAS_POST = BLOG + "/blog/christmas-decor-finds"
+NEW_YEAR_POST = BLOG + "/blog/new-year-home-reset-essentials"
 
 
 class TestBlogTrendMapping(unittest.TestCase):
@@ -225,6 +226,27 @@ class TestBlogTrendMapping(unittest.TestCase):
     def test_christmas_trend_case_and_spacing_insensitive(self):
         d = route_product(trend_pin(" Christmas ", title="Twinkling Tree Corner"))
         self.assertEqual(d["destination_url"], CHRISTMAS_POST)
+        self.assertEqual(d["product_method"], "blog_trend")
+
+    def test_new_year_trend_to_new_year_post(self):
+        # Trend key is the sheet's stamped name "New Year" (normalized to
+        # "new year" by the router) → the New Year reset post (12 Nov 2026).
+        d = route_product(trend_pin(
+            "New Year",
+            title="Fresh Organized Entryway For The New Year",
+            description="new year home reset organized entryway baskets",
+            visual_prompt="organized entryway with woven baskets and shelves",
+            board_name="New Year",
+        ))
+        self.assertEqual(d["destination_url"], NEW_YEAR_POST)
+        self.assertEqual(d["product_id"], "blog:new-year-home-reset-essentials")
+        self.assertEqual(d["product_method"], "blog_trend")
+        self.assertEqual(d["product_confidence"], 1.0)
+        self.assertEqual(d["product_cta"], "")  # no kit CTA glued onto a blog pin
+
+    def test_new_year_trend_case_and_spacing_insensitive(self):
+        d = route_product(trend_pin("  NEW YEAR  ", title="Tidy Pantry Reset"))
+        self.assertEqual(d["destination_url"], NEW_YEAR_POST)
         self.assertEqual(d["product_method"], "blog_trend")
 
     def test_halloween_trend_behaves_exactly_as_before(self):

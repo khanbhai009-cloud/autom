@@ -256,14 +256,17 @@ def _theme_blog_decision(theme) -> Optional[dict]:
     return None
 
 
-# ── Trend pin → Blog mapping (owner, 1 Nov 2026) ──────────────────────────────
+# ── Trend pin → Blog mapping (owner, 1 Nov 2026; New Year added 12 Nov 2026) ──
 # Trend pins never carry a Prompts_Master theme — trend_cmo stamps the
 # Trend_Prompts row's trend name on strategy["trend"] instead. Christmas
-# trend pins link to the seasonal post on the site; every other trend
-# value (halloween, ...) is unmapped here and falls through to the normal
-# routing, exactly as before this mapping existed.
+# and New Year trend pins link to their seasonal posts on the site; every
+# other trend value (halloween, ...) is unmapped here and falls through to
+# the normal routing, exactly as before this mapping existed.
+# Keys are the NORMALIZED trend names (_normalize_theme: lowercase, single
+# spaces) — the sheet stamps "New Year", so the key is "new year".
 _TREND_BLOG_POSTS = {
     "christmas": {"path": "/blog/christmas-decor-finds", "slug": "christmas-decor-finds"},
+    "new year": {"path": "/blog/new-year-home-reset-essentials", "slug": "new-year-home-reset-essentials"},
 }
 
 
